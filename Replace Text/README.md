@@ -1,4 +1,5 @@
 The **Replace text.lua** script reads rules from text files to match and replace expressions, there are 2 ways to do so:
+
 1-Via "Regular Expression (regex)" (see "re" module of aegisub for more informations) using the following method:
 ```
   %1 regex_match_expression  
