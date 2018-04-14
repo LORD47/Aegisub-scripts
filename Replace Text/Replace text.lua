@@ -444,7 +444,7 @@ end
 -- show help
 function showHelp()
      local tmp_conf = {}
-	 local help_str = 'This scirpt reads rules from text files to match and replace expressions, there are 2 ways to do so:' .. 
+	 local help_str = 'This script reads rules from text files to match and replace expressions, there are 2 ways to do so:' .. 
                       '\n1-Via "Regular Expression (regex)" (see "re" module of aegisub for more informations) using the following method:\n  %1 regex_match_expression\n  %2 regex_replace_expression' ..
                       "\n\n  Example: subtitle line text = they should of...\n  %1 (should|could)\\s+of \n  %2 \\1've\n  after applying the above rule, the replaced text would be:   they should've..." ..
 			          '\n\n2-Via "Simple Match":  match_expression+replace_expression with 2 cases:'	.. 
