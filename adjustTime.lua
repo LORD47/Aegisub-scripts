@@ -207,7 +207,7 @@ if(config["shift_by"] ~= nil) then tmp_str = config["shift_by"] end
 	  
 	-- edit zone for the default styles	
  	tmp_tbl = { name = "shift_by"; class = "edit"; x = 1; y = 0 ; height = 1; width = 7;
-                value = tmp_str; hint = "Time shiffting is based on this value";
+                value = tmp_str; hint = "Time shifting is based on this value";
 		  	  }
      
     table.insert(tmp_conf, tmp_tbl )
