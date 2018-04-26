@@ -67,11 +67,11 @@ function replaceNames(subtitles, selected_lines, active_line)
 		idx = idx + 1
 
 		if(dlg_st_at == 0)then dlg_st_at = i end
-
+		
 		local str, _, tags, tmp_nbRplcdWrds = replaceText(i, idx, rules, line.text, true, rplcd_at_lines, needs_conf, true)
 		nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
 
-		if(tmp_nbRplcdWrds > 0)then
+		if(tmp_nbRplcdWrds > 0)then		
 		 line.text = tags .. str
 		 subtitles[i] = line
 		end
@@ -392,12 +392,13 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 
 		   if(check_confirm and rules[j].confirm == true)then
 			confirmThis(i, rules[j], needs_conf, tags)
+			str = old_str
 		   else
 			   nbRplcdWrds = nbRplcdWrds + 1
 
 			   if(log_stats)then
-			    if(rplcd_at_lines[ rules[j].wrng_names ] ~= nil) then rplcd_at_lines[ rules[j].wrng_names ].lines = rplcd_at_lines[ rules[j].wrng_names ].lines .. ' ' .. idx
-			    else rplcd_at_lines[ rules[j].wrng_names ] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+			    if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
+			    else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 			   end
 		   end
 
@@ -422,6 +423,7 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 
 				if(check_confirm and rules[j].confirm == true)then
 				 confirmThis(i, rules[j], needs_conf, tags)
+				 str = old_str
 				else
 					nbRplcdWrds = nbRplcdWrds + 1
 
@@ -444,7 +446,7 @@ end
 -- show help
 function showHelp()
      local tmp_conf = {}
-	 local help_str = 'This script reads rules from text files to match and replace expressions, there are 2 ways to do so:' .. 
+	 local help_str = 'This scirpt reads rules from text files to match and replace expressions, there are 2 ways to do so:' .. 
                       '\n1-Via "Regular Expression (regex)" (see "re" module of aegisub for more informations) using the following method:\n  %1 regex_match_expression\n  %2 regex_replace_expression' ..
                       "\n\n  Example: subtitle line text = they should of...\n  %1 (should|could)\\s+of \n  %2 \\1've\n  after applying the above rule, the replaced text would be:   they should've..." ..
 			          '\n\n2-Via "Simple Match":  match_expression+replace_expression with 2 cases:'	.. 
