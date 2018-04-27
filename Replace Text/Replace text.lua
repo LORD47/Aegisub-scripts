@@ -385,15 +385,12 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 		 local nbRep
 		 old_str = str
 
-		 if(rules[j].class == 'regex')then
-		  str = re.sub(str, rules[j].wrng_names, rules[j].cr_name)
-
-		  if(str ~= old_str)then
-
-		   if(check_confirm and rules[j].confirm == true)then
+		 if(rules[j].class == 'regex')then	-- "regex" replacement
+		  if(re.match(str, rules[j].wrng_names) ~= nil)then -- rule pattern matched	
+		   if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
 			confirmThis(i, rules[j], needs_conf, tags)
-			str = old_str
-		   else
+		   else -- text replace does not need confirmation
+			   str = re.sub(str, rules[j].wrng_names, rules[j].cr_name)
 			   nbRplcdWrds = nbRplcdWrds + 1
 
 			   if(log_stats)then
@@ -404,7 +401,7 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 
 		  end
 
-		 else -- "normal" replacement		
+		 else -- "normal" replacement
 			 pos, _ = string.find(trim(rules[j].wrng_names), '%/') -- check if split is by "/" -> we're replacing multiple words
 			 local tmp = {}
 
@@ -421,10 +418,10 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 
 			   if(nbRep ~= nil and nbRep > 0)then -- str has been changed
 
-				if(check_confirm and rules[j].confirm == true)then
+				if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
 				 confirmThis(i, rules[j], needs_conf, tags)
 				 str = old_str
-				else
+				else -- text replace does not need confirmation
 					nbRplcdWrds = nbRplcdWrds + 1
 
 					if(log_stats)then	
