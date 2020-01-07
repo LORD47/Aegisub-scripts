@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "2.0"
+script_version = "2.1"
 
 re = require 'aegisub.re'
 
@@ -123,7 +123,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 				-- labels
 				-- wrgn_word
-				tmp_tbl = { class = "label"; label = "Original:";  x = 0; y = (pos_y + 2); height = 1; width = 1; }
+				tmp_tbl = { class = "label"; label = "Original: @" ..  display_time(line.start_time);  x = 0; y = (pos_y + 2); height = 1; width = 1; }
 				table.insert(tmp_conf, tmp_tbl)
 
 				-- cr_word
@@ -413,7 +413,7 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 			 for k = 1, #tmp do
 			  if( not isempty(tmp[k]) )then
 			   nbRep = 0
-			   str, nbRep = string.gsub(str, "%" .. trim(tmp[k]), rules[j].cr_name)
+			   str, nbRep = string.gsub(str, '%' .. trim(tmp[k]), rules[j].cr_name)
 			   str, _ = string.gsub(str, "%&%&", ' ') -- replace $$ after a word with a space -> because Trim in a rule eliminates both "spaces" at rigt and left
 
 			   if(nbRep ~= nil and nbRep > 0)then -- str has been changed
@@ -501,6 +501,20 @@ end
 
 function isempty(s)
  return (s == nil or trim(s) == '')
+end
+
+
+function display_time(mseconds)
+  local seconds = tonumber(mseconds)/1000
+  local mscs = tonumber(mseconds) % 1000  
+
+  if(seconds <= 0) then return "00:00:00." .. mscs;
+  else
+    hours = string.format("%02.f", math.floor(seconds/3600));
+    mins = string.format("%02.f", math.floor(seconds/60 - (hours*60)));
+    secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
+    return hours .. ":" .. mins .. ":" .. secs .. "." .. mscs
+  end
 end
 
 aegisub.register_macro(script_name, script_description, appContext)
