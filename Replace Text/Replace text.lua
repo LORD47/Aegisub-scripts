@@ -1,12 +1,15 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "2.1"
+script_version = "2.9"
 
 re = require 'aegisub.re'
+lfs = require 'aegisub.lfs'
 
-include("unicode.lua")
 include("utf8.lua")
+
+
+vars_tbl = {["global"] = {}, ["locals"] = {}}
 
 function appContext(subtitles, selected_lines, active_line)
 	local tmp_conf = {}
@@ -29,8 +32,9 @@ function replaceNames(subtitles, selected_lines, active_line)
       local filenames = aegisub.dialog.open('Select file to read', '', '',
                                            'Text files (.txt)|*.txt', true, true)
       local needs_conf = {}
+      vars_tbl = {["global"] = {}, ["locals"] = {}}
 
-   if(filenames ~= nil)then	
+   if(filenames ~= nil)then      
     local nbRplcdWrds = 0
 	local dlg_st_at = 0	
     local rules, rules_keys, rplcd_at_lines = {}, {}, {}
@@ -211,13 +215,114 @@ end
 
 
 function removeAllComments(t)
+    local new_t = {}
 
-	 for i = #t, 1, -1 do
-       if(isempty(t[i]) or re.match(trim(t[i]), '^#.*') ~= nil)then
-	    table.remove(t, i)
-	   end
-     end
+	for i = 1, #t do
+      if((not isempty(t[i])) and (re.match(trim(t[i]), '^#.*') == nil))then
+	   table.insert(new_t, {str = trim(t[i]), line = i})
+	  end
+    end
+	
+ return new_t	
 end
+
+
+function get_file_path(filename)
+local dir, fname = filename:match('(.-)([^\\/]-%.?[^%.\\/]*)$')
+
+ if(dir == nil)then dir = '' end
+  
+ return dir, fname
+end
+
+function load_file(default_file_path, fname)
+
+    local t, set_dir, script_dir = {}, false, lfs.currentdir()
+	
+    local dir, filename = get_file_path(fname)
+	
+	local file_path = dir .. filename
+	
+	-- check if it's a relative path
+	if(dir == '' or dir.sub(1,1) == '.')then 
+      set_dir = true
+
+	elseif(dir.sub(1,1) == '/' or dir.sub(1,1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
+	 if(package.config:sub(1,1) == '\\')then  -- OS is Windows
+	   set_dir = true
+	 end
+	end 
+	
+	if(set_dir)then
+	 local path = get_file_path(default_file_path)
+     lfs.chdir(path)
+	end
+	
+	local file = io.open(file_path, "rb")
+	
+    if(file == nil)then aegisub.debug.out('Error! External file: "%s" doesn\'t exist -> ignoring this file.\n', file_path) 
+	else -- file exists
+	    aegisub.debug.out("Loading the external file: %s\n", file_path)
+
+	    local file_lines = file:read("*a")
+	    file:close()
+
+	    t = split(trim(file_lines), '\n')
+	    t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
+	   end
+
+  if(set_dir)then lfs.chdir(script_dir)end
+  
+ return t
+end
+
+
+-- parse and load "vars" from files found in "%load file_name" commands
+function load_external_files(default_file_path, vars, t, idx)
+   local tbl = {}, idx
+   local files_list, i = get_files_list(t, idx)
+   
+   for k = 1, #files_list do
+    tbl = load_file(default_file_path, files_list[k])
+
+	if(#tbl > 0)then
+	 vars_tbl, _ = loadVars(vars, tbl, 1, {load_all_vars = true})
+	end
+
+   end
+   
+ return vars, i
+end
+
+-- parse table elements for sequential "%load file_name" command
+function get_files_list(t, idx)
+    if(t[idx] == nil)then return {}end
+
+    local files_list = {}
+	local i, last_file_cmd_id = idx, idx
+	 
+	pattern = '^\\%load\\s+(.+)'
+
+	repeat
+
+     matches = re.match(trim(t[i].str), pattern)
+	 
+	 if(matches ~= nil)then
+	   -- tba check duplicates
+	   table.insert(files_list, trim(string.lower(matches[2].str)))
+	   last_file_cmd_id = i  	   
+	 end
+
+     i = i + 1
+	until(matches == nil or i > #t)
+
+ if(#files_list > 0)then -- files were added -> push the "index" of "t" to the next position
+  last_file_cmd_id = last_file_cmd_id + 1
+ end
+ 
+ return files_list, last_file_cmd_id
+end
+
 
 
 function loadNames(filename, names_list, tmp_rules, rules_keys)
@@ -225,7 +330,7 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 	  local rules, tmp = tmp_rules, {}
       t = split(trim(names_list), '\n')
 
-	  removeAllComments(t)
+	  t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
 
 	  local tmp = {}
 	  local i = 1
@@ -233,64 +338,77 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 	  local rule_class = ''
 	  local hint = ''
 	  local new_rule_valid = false
+	  
+	  -- reset vars_tbl.locals
+	  vars_tbl.locals = {}
 
       while(i <= #t) do
 		new_rule_valid = false
 
-		_, _, tmp_class = trim(t[i]):find('^(%%[%d]*)')
+        vars_tbl, i = load_external_files(filename, vars_tbl, t, i)
+		
+		if(i > #t)then break end
+		
+        vars_tbl, i = loadVars(vars_tbl, t, i);
+		
+		if(i > #t)then break end
+		
+		_, _, tmp_class = trim(t[i].str):find('^(%%[%d]*)')
 
 		-- %1 regex_to_check_against
 		if(tmp_class ~= nil and tmp_class == '%1')then -- it's not misformed Regex (starts with a % but not with %1)
-		tmp = {}
-		tmp[1] = trim(string.sub(trim(t[i]), string.len(tmp_class) + 1))
+         tmp = {}
+         tmp[1] = trim(string.sub(trim(t[i].str), string.len(tmp_class) + 1))
+         
+         -- %2 string_to_replace_with
+         if(t[i+1] ~= nil and string.sub(trim(t[i+1].str), 1, 2) == '%2')then
+             tmp[2] = trim(string.sub(trim(t[i+1].str), 3))
+             i = i + 1
+             
+             wrng_names = applyVars(trim(tmp[1]), vars_tbl)
+             cr_name = applyVars(trim(tmp[2]), vars_tbl)
 
-		-- %2 string_to_replace_with
-		if(t[i+1] ~= nil and string.sub(trim(t[i+1]), 1, 2) == '%2')then
-		tmp[2] = trim(string.sub(trim(t[i+1]), 3))
-		i = i + 1
-
-		wrng_names = trim(tmp[1])
-		cr_name = trim(tmp[2])
-		hint = cr_name 
-		rule_class = 'regex'
-		new_rule_valid = true
-		else
-			new_rule_valid = false	
-			aegisub.debug.out("\nRule was ignored! Regex match with no replacement rule @Line %d:\n %s \n-----------------------------------------------------------", i, trim(t[i]))
-			end
-
-		elseif(tmp_class ~= nil)then aegisub.debug.out("\nMisformed rule was ignored @Line %d:\n %s\n----------------------------------", i, trim(t[i]))
-		elseif(tmp_class == nil)then
-				local tmp = split(trim(t[i]), '+') -- Format: correct_name+false_name[(\s|\/)false_name]
-
-				if(#tmp > 1)then -- split with Arabic string return inverse index
-				--table.insert(name, trim(tmp[2])) -- crt_name
-				--table.insert(wr_names, trim(tmp[1])) -- wr_names
-
-					wrng_names = trim(tmp[1])
-					cr_name = trim(tmp[2])
-					hint = cr_name 
-					rule_class = 'normal'
-					new_rule_valid = true
-				else 
-					new_rule_valid = false
-					aegisub.debug.out("\nMisformed data ignored @Line: " .. i .. " : " .. t[i])
-				end
+             hint = trim(tmp[2]) 
+             rule_class = 'regex'
+             new_rule_valid = true
+             
+         else
+         	 new_rule_valid = false	
+         	 aegisub.debug.out("\nRule was ignored! Regex match with no replacement rule @Line %d:\n %s \n-----------------------------------------------------------\n", t[i].line, trim(t[i].str))
+         	end
+         
+   		elseif(tmp_class ~= nil)then aegisub.debug.out("\nMisformed rule was ignored @Line %d:\n %s\n----------------------------------\n", t[i].line, trim(t[i].str))
+   		elseif(tmp_class == nil)then
+   				local tmp = split(trim(t[i].str), '+') -- Format: correct_name+false_name[(\s|\/)false_name]
+   
+   				if(#tmp > 1)then -- split with Arabic string return inverse index
+   				--table.insert(name, trim(tmp[2])) -- crt_name
+   				--table.insert(wr_names, trim(tmp[1])) -- wr_names
+   
+   					wrng_names = trim(tmp[1])
+   					cr_name = trim(tmp[2])
+   					hint = cr_name 
+   					rule_class = 'normal'
+   					new_rule_valid = true
+   				else 
+   					new_rule_valid = false
+   					aegisub.debug.out("\nMisformed data ignored @Line: " .. t[i].line .. " : " .. t[i].str)
+   				end
 		end
 
 	    if(new_rule_valid)then -- no error after checking current "rule"
 		 -- %ask -> confirm replacement
 		 local confirm = false
 
-		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1]), 1, 4)) == '%ask')then
+		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1].str), 1, 4)) == '%ask')then
 		  confirm = true
 		  i = i + 1
 		 end
 
 		 -- %hint (description about the current "rule", if it's not available -> use the "wrng_names" as "hint"
-		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1]), 1, 5)) == '%hint')then
+		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1].str), 1, 5)) == '%hint')then
 		  -- copy the string after "%ask"
-		  hint = string.lower(trim(string.sub(trim(t[i+1]), 6)))
+		  hint = string.lower(trim(string.sub(trim(t[i+1].str), 6)))
 
 		   i = i + 1
 		 end
@@ -309,8 +427,8 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 		     end
 	    end
 
-	    i = i + 1
-	   end -- end of: while(i <= #t) do
+	    i = i + 1				
+	  end -- end of: while(i <= #t) do
 
  return rules
 end
@@ -440,6 +558,93 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 end
 
 
+
+function loadVars(vars, t, idx, options)
+    local vars_tmp, i, lest_var_id = vars, idx, idx
+	local options = options or {load_all_vars = false}
+     
+    -- global vars start with "_"
+	pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)'
+
+	repeat
+
+     matches = re.match(trim(t[i].str), pattern)
+	 
+	 if(matches ~= nil )then
+	   -- tba: maybe I should log & display changes of global vars
+	   vars_tbl.global[string.lower(matches[2].str)] = trim(matches[3].str)
+	   lest_var_id = i + 1
+	   
+	   else
+	    pattern2 = '^\\%\\$([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)'
+	    matches = re.match(trim(t[i].str), pattern2)
+		
+		if(matches ~= nil)then
+	     aegisub.debug.out('var = %s\nval = %s\n------------------------------------\n', matches[2].str, matches[3].str)
+	     vars_tbl.locals[string.lower(matches[2].str)] = trim(matches[3].str)		 
+		 lest_var_id = i + 1
+        end	  
+	   	   
+	 end
+
+     i = i + 1
+	until( (matches == nil and options.load_all_vars ~= nil and not options.load_all_vars) or i > #t)
+
+	
+ return vars_tmp, lest_var_id
+end
+
+
+function applyVars(val, vars)
+    local str = val
+	local tmp_str = ''
+
+	pattern  = '\\%(_?[a-zA-Z][a-zA-Z_0-9]*)\\%'		
+	
+	repeat
+	 matches = re.match(str, pattern)
+	 
+	 local isGlobal = false
+	 
+	 if(matches ~= nil)then   
+	   isGlobal = (string.utf8sub(matches[2].str, 1, 1) == '_')
+	   
+	   local key_global = string.lower(string.utf8sub(matches[2].str, 2, -1))
+	   local key_local = string.lower(matches[2].str)
+	   
+	   if(isGlobal and vars.global[key_global] ~= nil)then
+	    str = re.sub(str, matches[1].str, vars.global[key_global])
+	   
+	   elseif(not isGlobal and vars.locals[key_local] ~= nil)then       
+	    str = re.sub(str, matches[1].str, vars.locals[key_local])
+		
+	   else 		   
+		   -- tmp_str = str:utf8sub(1, matches[1].last)
+           -- utf8sub could not work correctly if used with a non-ASCII string		   
+		   -- it uses str:sub(first_byte, last_byte) that somehow treats 2 bytes as if they are 1 byte
+		   -- for example this string: str = م%a_var%x (م is 2 bytes) 
+		   -- and the result of: str:utf8sub(1, matches[1].last) as str:utf8sub(1, 9)
+		   -- will produce م%a_var%x rather than م%a_var%
+
+		   tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
+		   tmp_str_matches = re.match(str, tmp_pattern)
+		   
+		   if(tmp_str_matches ~= nil)then
+		    tmp_str = tmp_str .. tmp_str_matches[2].str
+			str = tmp_str_matches[3].str
+		   end
+
+	   end
+	   	   	   
+     end
+
+	until(matches == nil)
+	
+ return (tmp_str .. str)	
+end
+
+
+
 -- show help
 function showHelp()
      local tmp_conf = {}
@@ -456,7 +661,7 @@ function showHelp()
 					  '\n  1-you can add "%ask" after the replace_expression  to "confirm" (and possibly edit) the replacement text.' ..
 					  '\n\n  2-if you add "%hint rule_description" after the replace_expression (and after %ask expression if it exists), the "rule_description"' ..
 					  '\n     will be used as a description text in the replacements log dialog for the rule applied (otherwise the replace_expression is used).' ..
-					  '\n\n  3-Lines that start with  # are treated as comments and thus ignonred (so is for empty lines).'
+					  '\n\n  3-Lines that start with # are treated as comments and thus ignored (so is for empty lines).'
 
      -- GUI
      tmp_conf = { {class = "label"; x = 0; y = 0; height = 1; width = 1; label = help_str; } }
@@ -506,7 +711,8 @@ end
 
 function display_time(mseconds)
   local seconds = tonumber(mseconds)/1000
-  local mscs = tonumber(mseconds) % 1000  
+  local mscs = tonumber(mseconds) % 1000
+  
 
   if(seconds <= 0) then return "00:00:00." .. mscs;
   else
