@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "2.9"
+script_version = "2.9.1"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -279,18 +279,38 @@ end
 
 -- parse and load "vars" from files found in "%load file_name" commands
 function load_external_files(default_file_path, vars, t, idx)
-   local tbl = {}, idx
+   local tmp_vars, tbl = {["global"] = {}, ["locals"] = {}}, {}
+   local str
+   local nb_added_vars = 0
+   
    local files_list, i = get_files_list(t, idx)
    
    for k = 1, #files_list do
     tbl = load_file(default_file_path, files_list[k])
 
-	if(#tbl > 0)then
-	 vars_tbl, _ = loadVars(vars, tbl, 1, {load_all_vars = true})
+	if(#tbl > 0)then	 
+	 vars, _, nb_added_vars = loadVars(vars, tbl, 1, {load_all_vars = true, exclude_vars = 'local'})
+	 
+	 if(nb_added_vars > 0)then
+	  tmp_vars = load_external_files(default_file_path, tmp_vars, tbl, 1)
+	 end
+
 	end
 
    end
-   
+ -- tbr
+ --print_vars(tmp_vars)
+ --
+ 
+  if(nb_added_vars > 0)then
+   --aegisub.debug.out('\napplying tmp_vars\n') -- tbr
+   for k, v in pairs(vars.global) do
+    str = applyVars(v, tmp_vars)
+	vars.global[k] = str
+	--aegisub.debug.out('\n[%s] = %s\n, [%s] = %s\n', k, v, k, str) -- tbr
+   end
+  end
+ 
  return vars, i
 end
 
@@ -349,7 +369,8 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 		
 		if(i > #t)then break end
 		
-        vars_tbl, i = loadVars(vars_tbl, t, i);
+        vars_tbl, i = loadVars(vars_tbl, t, i)
+		print_vars(vars_tbl)
 		
 		if(i > #t)then break end
 		
@@ -560,8 +581,10 @@ end
 
 
 function loadVars(vars, t, idx, options)
-    local vars_tmp, i, lest_var_id = vars, idx, idx
-	local options = options or {load_all_vars = false}
+    local vars_tmp = vars
+	local i, lest_var_id = idx, idx
+	local nb_added_vars = 0
+	local options = options or {load_all_vars = false, exclude_vars = ''}
      
     -- global vars start with "_"
 	pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)'
@@ -571,8 +594,12 @@ function loadVars(vars, t, idx, options)
      matches = re.match(trim(t[i].str), pattern)
 	 
 	 if(matches ~= nil )then
-	   -- tba: maybe I should log & display changes of global vars
-	   vars_tbl.global[string.lower(matches[2].str)] = trim(matches[3].str)
+	   if(trim(string.lower(options.exclude_vars)) ~= 'global')then
+	    -- tba: maybe I should log & display changes of global vars
+	    vars_tmp.global[string.lower(matches[2].str)] = trim(matches[3].str)
+		nb_added_vars = nb_added_vars + 1
+	   end
+		
 	   lest_var_id = i + 1
 	   
 	   else
@@ -580,8 +607,12 @@ function loadVars(vars, t, idx, options)
 	    matches = re.match(trim(t[i].str), pattern2)
 		
 		if(matches ~= nil)then
-	     aegisub.debug.out('var = %s\nval = %s\n------------------------------------\n', matches[2].str, matches[3].str)
-	     vars_tbl.locals[string.lower(matches[2].str)] = trim(matches[3].str)		 
+		 if(trim(string.lower(options.exclude_vars)) ~= 'local')then
+	      aegisub.debug.out('var = %s\nval = %s\n------------------------------------\n', matches[2].str, matches[3].str) -- tbr
+	      vars_tmp.locals[string.lower(matches[2].str)] = trim(matches[3].str)
+		  nb_added_vars = nb_added_vars + 1
+		 end
+		 
 		 lest_var_id = i + 1
         end	  
 	   	   
@@ -591,7 +622,7 @@ function loadVars(vars, t, idx, options)
 	until( (matches == nil and options.load_all_vars ~= nil and not options.load_all_vars) or i > #t)
 
 	
- return vars_tmp, lest_var_id
+ return vars_tmp, lest_var_id, nb_added_vars
 end
 
 
@@ -720,6 +751,13 @@ function display_time(mseconds)
     mins = string.format("%02.f", math.floor(seconds/60 - (hours*60)));
     secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
     return hours .. ":" .. mins .. ":" .. secs .. "." .. mscs
+  end
+end
+
+-- tbr
+function print_vars(vars)
+  for k, v in pairs(vars.global) do
+   aegisub.debug.out('%s = %s\n', k, v);
   end
 end
 
