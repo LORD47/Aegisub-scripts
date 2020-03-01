@@ -1,27 +1,55 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "2.1"
+script_version = "2.9.5"
 
 re = require 'aegisub.re'
+lfs = require 'aegisub.lfs'
+util = require 'aegisub.util'
 
-include("unicode.lua")
 include("utf8.lua")
 
+if(not dialg)then dialg = {} end
+dialg.conf = {}
+
+vars_tbl = {global = {}, locals = {}}
+vars_log = {log_type = '', entries = {}, undefined_vars = {global = {}, locals = {}}}
+
+expr_update_log = {}
+
+default_file_path = ''
+
 function appContext(subtitles, selected_lines, active_line)
-	local tmp_conf = {}
-	local tmp_tbl = {}
-	local cfg_res = ""
+
+    local items = {"1- Do not log constants values changes", "2- Log All constants values changes",
+	               '3- Only log "global" constants values changes', '4- Only log "local" constants values changes'}
+
+	local tmp_conf = {name = "log_vars"; class = "dropdown"; x = 1; y = 0; height = 1; width = 7; value = items[1]; items = items}
+
+	local cfg_res
 
     repeat
-     cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace Text", "Help", "Close"} )
+	 dialg.conf = {}
+
+     table.insert(dialg.conf, {class = "label"; label = '"Defined Constants" values changes:'; x = 0; y = 0 ; height = 1; width = 1;})
+     table.insert(dialg.conf, tmp_conf)
+	 
+     cfg_res, config = aegisub.dialog.display(dialg.conf, {"Replace Text", "Help", "Close"} )
 
      if(tostring(cfg_res) ~= "false")then
-      if(string.lower(cfg_res) == "replace text")then replaceNames(subtitles, selected_lines, active_line)
+	 
+      if(string.lower(cfg_res) == "replace text")then
+	   local tmp_val = trim(string.match(trim(config["log_vars"]), "^%d+"))
+	   
+	   vars_log = {log_type = tmp_val, entries = {}, undefined_vars = {global = {}, locals = {}}}
+	   
+ 	   replaceNames(subtitles, selected_lines, active_line)
       elseif(string.lower(cfg_res) == "help")then showHelp() end
      end
+
     until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "replace text" or string.lower(cfg_res) == "close")
 end
+
 
 function replaceNames(subtitles, selected_lines, active_line)
       -- file_name = aegisub.dialog.open(title, default_file, default_dir, wildcards,
@@ -29,8 +57,12 @@ function replaceNames(subtitles, selected_lines, active_line)
       local filenames = aegisub.dialog.open('Select file to read', '', '',
                                            'Text files (.txt)|*.txt', true, true)
       local needs_conf = {}
+      --vars_tbl = {["global"] = {}, ["locals"] = {}}
+	  vars_tbl = {global = {}, locals = {}}
+	  expr_update_log = {}
+      default_file_path = ''
 
-   if(filenames ~= nil)then	
+   if(filenames ~= nil)then      
     local nbRplcdWrds = 0
 	local dlg_st_at = 0	
     local rules, rules_keys, rplcd_at_lines = {}, {}, {}
@@ -199,11 +231,85 @@ function replaceNames(subtitles, selected_lines, active_line)
 			end
 
 			until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
-	 end -- end of: if(#needs_conf > 0)then
+	 end -- end of: if(total_repls_to_review > 0)then
+
+     local title_printed = false
+
+     for _, log_entry in pairs(vars_log.entries)do
+	  if(not title_printed)then
+	   title_printed = true
+       aegisub.debug.out('-----------------------[Updated Local/Global constants]-----------------------\n')
+	  end
+
+	  aegisub.debug.out(log_entry)
+	 end
 
 	 showStats(rplcd_at_lines)
 
-    end -- end of: for file_idx = 1, #filenames do
+    end -- end of: if(#rules > 0)then
+
+
+    -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expresion_update_id} }}, locals = {'fname' = {} }}}
+    --if(#vars_log.undefined_vars > 0)then -- tbv
+    if(true)then
+	 local nb_global_local = 0
+	 local captions = {global = "Global", locals = "Local"}
+	 
+	 for k, filenames in pairs(vars_log.undefined_vars) do
+
+
+	   for fname, line_numbers in pairs(filenames)do
+        local var_title_printed = false
+
+	    for line_number, var_keys in spairs(line_numbers) do
+		
+		 for a_var, expre_updt_id in pairs(var_keys) do
+		  local var_name_prfx = trim(k):lower() == 'global' and '_' or ''
+          nb_global_local = nb_global_local + 1
+
+          if(not var_title_printed)then
+		   	aegisub.debug.out('\n-----------------------[Undefined %s constant(s)]-----------------------\n', captions[k])
+			var_title_printed = true
+		  end
+
+		  aegisub.debug.out(string.format('"%s" @line: %s in file: %s\n', var_name_prfx .. a_var, tostring(line_number), fname))
+		  
+		  if(expre_updt_id > 0)then
+		   local output_prfx_frst = 'in expression'
+		   local output_prfx_rest = '                 -->'
+		   aegisub.debug.out(output_prfx_frst)
+						   
+		   for updt_id = 1, expre_updt_id do
+		    local log_update_str = fields_lookup(expr_update_log, {fname, 'lines', line_number, updt_id})
+
+            if(log_update_str ~= nil)then
+		      local ln_sfx = updt_id ~= 1 and output_prfx_rest or ''
+			  local ln_prfx = updt_id == expre_updt_id and '\n\n' or '\n'
+
+		      aegisub.debug.out('%s: %s%s', ln_sfx, tostring(log_update_str), ln_prfx)
+			end
+
+		   end
+		    
+		  end
+
+		 end
+		 
+		end
+
+	   end
+	  
+	 end
+	 
+	 if(nb_global_local > 0 )then
+	  aegisub.debug.out('\n----------------------------------------------------------\nWarning! %d undefined Global/Local constant(s).\n', nb_global_local)
+	 end
+
+	end	
+
+    if(#vars_log.entries > 0)then
+	 aegisub.debug.out('\n----------------------------------------------------------\nWarning! %d Global/Local constant(s) were updated.\nView above for more information.\n', #vars_log.entries)
+	end
 
     aegisub.debug.out('\nReplaced %d word(s).\n', nbRplcdWrds)
   end -- end of: if(filenames ~= nil)	
@@ -211,107 +317,275 @@ end
 
 
 function removeAllComments(t)
+    local new_t = {}
 
-	 for i = #t, 1, -1 do
-       if(isempty(t[i]) or re.match(trim(t[i]), '^#.*') ~= nil)then
-	    table.remove(t, i)
+	for i = 1, #t do
+      if((not isempty(t[i])) and (re.match(trim(t[i]), '^#.*') == nil))then
+	   table.insert(new_t, {str = trim(t[i]), line = i})
+	  end
+    end
+	
+ return new_t	
+end
+
+
+function get_file_path(filename)
+local dir, fname = filename:match('(.-)([^\\/]-%.?[^%.\\/]*)$')
+
+ if(dir == nil)then dir = '' end
+  
+ return dir, fname
+end
+
+function load_file(default_file_path, fname)
+
+    local t, set_dir, script_dir = {}, false, lfs.currentdir()
+	
+    local dir, filename = get_file_path(fname)
+	
+	local file_path = dir .. filename
+	
+	-- check if it's a relative path
+	if(dir == '' or dir.sub(1,1) == '.')then 
+      set_dir = true
+
+	elseif(dir.sub(1,1) == '/' or dir.sub(1,1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
+	 if(package.config:sub(1,1) == '\\')then  -- OS is Windows
+	   set_dir = true
+	 end
+	end 
+	
+	if(set_dir)then
+	 local path = get_file_path(default_file_path)
+     lfs.chdir(path)
+	end
+	
+	local file = io.open(file_path, "rb")
+	
+    if(file == nil)then aegisub.debug.out('Error! External file: "%s" doesn\'t exist -> ignoring this file.\n', file_path) 
+	else -- file exists
+	    aegisub.debug.out("Loading the external file: %s\n", file_path)
+
+	    local file_lines = file:read("*a")
+	    file:close()
+
+	    t = split(trim(file_lines), '\n')
+	    t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
 	   end
-     end
+
+  if(set_dir)then lfs.chdir(script_dir)end
+  
+ return t
+end
+
+
+-- parse and load "vars" from files found in "%load file_name" commands
+function load_external_files(filename, vars)
+   local tmp_vars, tbl = {["global"] = {}, ["locals"] = {}}, {}
+   local nb_added_vars = 0 
+  
+   tbl = load_file(default_file_path, filename)
+   
+   if(#tbl > 0)then
+    -- if vars_log is enabled then only log globals
+    local tmp_log_type = ''
+   
+    if(vars_log.log_type == '2' or vars_log.log_type == '3')then tmp_log_type = 3 end
+    
+    tmp_vars, _, nb_added_vars = loadVars(vars, tbl, 1, {load_all_vars = true, exclude_vars = 'local', log_vars = tmp_log_type, fname = filename})
+   end
+  
+ return tmp_vars, i
+end
+
+-- parse table elements for sequential "%load file_name" command
+function get_files_list(t, idx)
+    if(t[idx] == nil)then return {}end
+
+    local files_list, hash = {}, {}
+	local i, last_file_cmd_id = idx, idx
+	 
+	local pattern = '^\\%load\\s+(.+)'
+
+	repeat
+
+     local matches = re.match(trim(t[i].str), pattern)
+	 
+	 if(matches ~= nil)then
+       -- prevent duplicated values 
+	   if(hash[trim(string.lower(matches[2].str))] == nil)then
+	    table.insert(files_list, trim(string.lower(matches[2].str)))
+
+		hash[trim(string.lower(matches[2].str))] = true
+	   end
+
+	   last_file_cmd_id = i  	   
+	 end
+
+     i = i + 1
+	until(matches == nil or i > #t)
+
+ if(#files_list > 0)then -- files were added -> push the "index" of "t" to the next position
+  last_file_cmd_id = last_file_cmd_id + 1
+ end
+ 
+ return files_list, last_file_cmd_id
+end
+
+
+function get_command_type(str)
+  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint'}
+  local cmds = { {pattern = '^\\%load\\s+(.+)', cmd_type = arr_cmd_types[1]},
+                 {pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[2]},
+                 {pattern = '^\\%\\$([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[3]},
+                 {pattern = '^\\%1\\s+?(.+)', cmd_type = arr_cmd_types[4]},
+                 {pattern = '^\\%2\\s+?(.+)', cmd_type = arr_cmd_types[5]},
+                 {pattern = '^\\%hint\\s+?(.+)', cmd_type = arr_cmd_types[6]},
+				 {pattern = '^\\%ask$', cmd_type = 'confirm'}
+               }
+
+  local command = {cmd_type = nil, matches = nil}  
+  
+  for _, cmd in pairs(cmds)do
+   
+   local matches = re.match(str, cmd.pattern)
+
+   if(matches ~= nil)then
+    command['cmd_type'] = trim(string.lower(cmd.cmd_type))
+	
+	if(value_exists(arr_cmd_types, command['cmd_type']))then command['matches'] = matches
+	else command['matches'] = nil end
+ 
+	break
+   end
+   
+  end
+
+ return command
 end
 
 
 function loadNames(filename, names_list, tmp_rules, rules_keys)
-      --local name, fls_names = {}, {}
+      default_file_path = filename
+
 	  local rules, tmp = tmp_rules, {}
-      t = split(trim(names_list), '\n')
+      local t = split(trim(names_list), '\n')
 
-	  removeAllComments(t)
+	  t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
 
+      local wrng_names, cr_name
 	  local tmp = {}
 	  local i = 1
 	  local tmp_class, crnt_ln
 	  local rule_class = ''
 	  local hint = ''
-	  local new_rule_valid = false
+	  local new_rule_valid = false -- tbr
+	  local new_rule = {valid = false, hint = '', has_confirm = false}
+
+	  -- reset vars_tbl.locals
+	  vars_tbl.locals = {}
 
       while(i <= #t) do
-		new_rule_valid = false
+		--new_rule_valid = false -- tbr
 
-		_, _, tmp_class = trim(t[i]):find('^(%%[%d]*)')
+		local cmd = get_command_type(trim(t[i].str))
+		aegisub.debug.out('cmd = [%s] @Line: %s\n', tostring(cmd.cmd_type), t[i].line) -- tbr
+        
+		if(cmd.cmd_type == 'load_file')then
+		       vars_tbl, i = loadVars(vars_tbl, t, i, {log_vars = vars_log.log_type, fname = filename, append_to_vars = true})
+			   new_rule = {valid = false, hint = '', has_confirm = false}
 
-		-- %1 regex_to_check_against
-		if(tmp_class ~= nil and tmp_class == '%1')then -- it's not misformed Regex (starts with a % but not with %1)
-		tmp = {}
-		tmp[1] = trim(string.sub(trim(t[i]), string.len(tmp_class) + 1))
+		elseif(cmd.cmd_type == 'regex_match')then
+		        new_rule = {valid = false, hint = '', has_confirm = false}
+                tmp = {}
+                tmp[1] = trim(cmd.matches[2].str)
+         
+		        local cmd_replace = t[i+1] and get_command_type(trim(t[i+1].str)) or nil
 
-		-- %2 string_to_replace_with
-		if(t[i+1] ~= nil and string.sub(trim(t[i+1]), 1, 2) == '%2')then
-		tmp[2] = trim(string.sub(trim(t[i+1]), 3))
-		i = i + 1
-
-		wrng_names = trim(tmp[1])
-		cr_name = trim(tmp[2])
-		hint = cr_name 
-		rule_class = 'regex'
-		new_rule_valid = true
-		else
-			new_rule_valid = false	
-			aegisub.debug.out("\nRule was ignored! Regex match with no replacement rule @Line %d:\n %s \n-----------------------------------------------------------", i, trim(t[i]))
-			end
-
-		elseif(tmp_class ~= nil)then aegisub.debug.out("\nMisformed rule was ignored @Line %d:\n %s\n----------------------------------", i, trim(t[i]))
-		elseif(tmp_class == nil)then
-				local tmp = split(trim(t[i]), '+') -- Format: correct_name+false_name[(\s|\/)false_name]
-
-				if(#tmp > 1)then -- split with Arabic string return inverse index
-				--table.insert(name, trim(tmp[2])) -- crt_name
-				--table.insert(wr_names, trim(tmp[1])) -- wr_names
-
-					wrng_names = trim(tmp[1])
-					cr_name = trim(tmp[2])
-					hint = cr_name 
-					rule_class = 'normal'
-					new_rule_valid = true
-				else 
-					new_rule_valid = false
-					aegisub.debug.out("\nMisformed data ignored @Line: " .. i .. " : " .. t[i])
-				end
+                if(cmd_replace ~= nil and cmd_replace.cmd_type == 'regex_replace')then
+                    tmp[2] = trim(cmd_replace.matches[2].str)
+                
+                    wrng_names = applyVars(trim(tmp[1]), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+                    cr_name = applyVars(trim(tmp[2]), vars_tbl, {fname = filename, line = t[i+1].line, full_str = t[i+1].str})
+                
+                    hint = trim(tmp[2]) -- tbr
+                    rule_class = 'regex'
+                    new_rule_valid = true -- tbr
+					new_rule.valid = true
+					new_rule.hint = trim(tmp[2])
+                 
+                 i = i + 1
+                    
+                else
+                	 new_rule_valid = false
+					 new_rule.valid = false
+                	 aegisub.debug.out("\nRule was ignored! Regex match with no replacement rule @Line %d:\n %s \n-----------------------------------------------------------\n", t[i].line, trim(t[i].str))
+                	end
+        
+        elseif(cmd.cmd_type == 'confirm')then new_rule.has_confirm = true
+        elseif(cmd.cmd_type == 'hint')then new_rule.hint = trim(cmd.matches[2].str)
+   		elseif(cmd.cmd_type == nil)then
+		        tmp = {}
+		        new_rule = {valid = false, hint = '', has_confirm = false}
+   				local tmp = split(trim(t[i].str), '+') -- Format: correct_name+false_name[(\s|\/)false_name]
+   
+   				if(#tmp > 1)then -- split with Arabic string return inverse index
+   				--table.insert(name, trim(tmp[2])) -- crt_name
+   				--table.insert(wr_names, trim(tmp[1])) -- wr_names
+   
+   					wrng_names = trim(tmp[1])
+   					cr_name = trim(tmp[2])
+   					hint = cr_name -- tbr
+   					rule_class = 'normal'
+   					new_rule_valid = true -- tbr
+					new_rule.valid = true
+					new_rule.hint = cr_name
+   				else 
+   					new_rule_valid = false -- tbr
+					new_rule.valid = false
+   					aegisub.debug.out("\nMisformed data ignored @Line: " .. t[i].line .. " : " .. t[i].str)
+   				end
 		end
 
-	    if(new_rule_valid)then -- no error after checking current "rule"
-		 -- %ask -> confirm replacement
-		 local confirm = false
+	    --if(new_rule_valid)then -- no error after checking current "rule" -- tbr
+	    if(new_rule.valid)then -- no error after checking current "rule"
+              local cmd_next = t[i+1] and get_command_type(trim(t[i+1].str)) or nil
+              -- tbr
+              if(cmd_next)then
+              aegisub.debug.out('cmd_next = [%s] @Line: %s\n', tostring(cmd_next.cmd_type), tostring(t[i+1].line)) --
+              else  aegisub.debug.out('cmd_next = nil @Line: %s\n', tostring(t[i].line) .. '+1') --
+              end
+              --
+              
+             
+              if(cmd_next == nil or (cmd_next.cmd_type ~= 'confirm' and cmd_next.cmd_type ~= 'hint'))then
+                  aegisub.debug.out('wrng_names = %s\n', wrng_names) -- tbr
+                  if(rules_keys[wrng_names] == nil)then -- not duplicate rule
+             	  aegisub.debug.out('has_confirm = %s\n\n', tostring(new_rule.has_confirm)) -- tbr
+                   table.insert(rules, {cr_name = cr_name, wrng_names = wrng_names, class = rule_class, confirm = new_rule.has_confirm, hint = new_rule.hint})
+                   rules_keys[wrng_names] = {cr_name = cr_name, class = rule_class, hint = new_rule.hint, filename = filename}
+                  else -- possible duplicate rule
+                       aegisub.debug.out('\nWarning! Duplicate rule exists in file: %s', filename)
+                 	  aegisub.debug.out('\nThis rule already exists in file: %s', rules_keys[wrng_names].filename)
+                 	  aegisub.debug.out('\nThe rule is:\n %s \n %s\n This duplicate is ignored.\n', wrng_names, cr_name)
+                 
+                 	  if(rules_keys[wrng_names].class ~= rule_class)then
+                 	   aegisub.debug.out('Although, one is a "Regex" unlike the other.\n', rules_keys[wrng_names].filename)
+                 	  end
+                      end
+              else aegisub.debug.out('Not now\n\n') -- tbr		 
+              end
+		  
 
-		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1]), 1, 4)) == '%ask')then
-		  confirm = true
-		  i = i + 1
-		 end
-
-		 -- %hint (description about the current "rule", if it's not available -> use the "wrng_names" as "hint"
-		 if(t[i+1] ~= nil and string.lower(string.sub(trim(t[i+1]), 1, 5)) == '%hint')then
-		  -- copy the string after "%ask"
-		  hint = string.lower(trim(string.sub(trim(t[i+1]), 6)))
-
-		   i = i + 1
-		 end
-
-		 if(rules_keys[wrng_names] == nil)then -- not duplicate rule
-		  table.insert(rules, {cr_name = cr_name, wrng_names = wrng_names, class = rule_class, confirm = confirm, hint = hint})
-		  rules_keys[wrng_names] = {cr_name = cr_name, class = rule_class, hint = hint, filename = filename}
-		 else -- possible duplicate rule
-		      aegisub.debug.out('\nWarning! Duplicate rule exists in file: %s', filename)
-			  aegisub.debug.out('\nThis rule already exists in file: %s', rules_keys[wrng_names].filename)
-			  aegisub.debug.out('\nThe rule is:\n %s \n %s\n This duplicate is ignored.\n', wrng_names, cr_name)
-
-			  if(rules_keys[wrng_names].class ~= rule_class)then
-			   aegisub.debug.out('Although, one is a "Regex" unlike the other.\n', rules_keys[wrng_names].filename)
-			  end
-		     end
+        elseif(cmd.cmd_type == 'confirm' or cmd.cmd_type == 'hint')then
+		      aegisub.debug.out('Misused command [%s] @Line: %s.\n', cmd.cmd_type, tostring(t[i].line))
+		      aegisub.debug.out('The [Confirm/Hint] commands come after the defined rules.\n')
+		 
 	    end
 
-	    i = i + 1
-	   end -- end of: while(i <= #t) do
-
+	    i = i + 1				
+	  end -- end of: while(i <= #t) do
+  print_vars(vars_tbl)-- tbr
  return rules
 end
 
@@ -440,6 +714,203 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 end
 
 
+
+function loadVars(vars, t, idx, options)
+    local new_vars, tmp_vars = util.deep_copy(vars), util.deep_copy(vars)
+	local loaded_extrnl_vars, tbl = {["global"] = {}, ["locals"] = {}}, {}
+	local i, last_var_id = idx, idx
+	local nb_added_vars = 0
+	
+	-- log_vars {1-> don't log, 2->log all, 3->globals only, 4->locals only}
+	local vars_defaults = {load_all_vars = false, exclude_vars = '', log_vars = '', fname = 'undefined', append_to_vars = false}
+	local options = options or vars_defaults
+	
+	-- init missing key+value
+	options = set_defaults(options, vars_defaults)
+     
+	repeat
+	  local maatches	 
+      local cmd = get_command_type(trim(t[i].str))
+	  --aegisub.debug.out('cmd = %s @Line: %s\n', tostring(cmd.cmd_type), tostring(t[i].line)) -- tbr
+	 
+	  if(cmd.cmd_type == 'load_file')then
+ 	      aegisub.debug.out(' cmd load_file: "%s" @line %d in file: "%s"\n', trim(cmd.matches[2].str), t[i].line, options.fname)
+		  loaded_extrnl_vars = load_external_files(trim(cmd.matches[2].str), loaded_extrnl_vars)
+
+		  if(true)then -- tbv
+			insert_loaded_vars(tmp_vars, loaded_extrnl_vars)
+		  end	    
+		 
+		  last_var_id = i + 1
+
+	  elseif(cmd.cmd_type == 'global_var')then
+          matches = cmd.matches
+          
+          if(trim(string.lower(options.exclude_vars)) ~= 'global')then
+       	  local var_key = trim(string.lower(matches[2].str))
+       
+          -- log updates of global vars if possible
+          if(new_vars.global[var_key] and (options.log_vars == '2' or options.log_vars == '3'))then
+            local log_entry = string.format('Global constant "%s" was set @line: %d in file: %s\nFrom: %s\nTo: %s\n\n',
+          								   var_key, t[i].line, options.fname, new_vars.global[var_key], trim(matches[3].str))
+          
+            table.insert(vars_log.entries, log_entry)
+          end
+       	
+		  -- if the current var value has other vars in it then apply them
+		  if(has_var(trim(matches[3].str)))then
+			   new_vars.global[string.lower(matches[2].str)] = applyVars(trim(matches[3].str), tmp_vars, {fname = options.fname, line = t[i].line, full_str = t[i].str})
+			   tmp_vars.global[string.lower(matches[2].str)] = new_vars.global[string.lower(matches[2].str)]
+		  else 
+		       new_vars.global[string.lower(matches[2].str)] = trim(matches[3].str)
+			   tmp_vars.global[string.lower(matches[2].str)] = new_vars.global[string.lower(matches[2].str)]
+			  end
+			
+			nb_added_vars = nb_added_vars + 1
+          end
+       	
+          last_var_id = i + 1	   
+   
+	  elseif(cmd.cmd_type == 'local_var')then
+          matches = cmd.matches
+          local var_key = trim(string.lower(matches[2].str))
+          local current_local_var = fields_lookup(new_vars.locals, {var_key, options.fname, 'val'})
+
+          -- if the current var value has other vars in it then apply them
+          local remove_or_keep = (trim(string.lower(options.exclude_vars)) == 'local')
+          local tmp_local_var
+          
+          if(has_var(trim(matches[3].str)))then 
+		       tmp_local_var = applyVars(trim(matches[3].str), tmp_vars, {fname = options.fname, line = t[i].line, full_str = t[i].str})
+          else 
+		       tmp_local_var = trim(matches[3].str)
+			  end 
+
+          -- set or insert the new local var
+          init_fields(new_vars.locals, {val = tmp_local_var, discard = remove_or_keep}, {var_key, options.fname})
+          init_fields(tmp_vars.locals, {val = tmp_local_var, discard = remove_or_keep}, {var_key, options.fname})
+          
+          -- log the updated local var if needed
+          if(current_local_var ~= nil and (options.log_vars == '2' or options.log_vars == '4'))then
+            local log_entry = string.format('Local constant "%s" was set @line: %d in file: %s\nFrom: %s\nTo: %s\n\n',
+          							   var_key, t[i].line, options.fname, current_local_var, tmp_local_var)
+          
+            table.insert(vars_log.entries, log_entry)
+          end
+          
+          
+          nb_added_vars = nb_added_vars + 1                
+          last_var_id = i + 1
+	  end
+
+     i = i + 1
+	until( (cmd.cmd_type == nil and options.load_all_vars ~= nil and not options.load_all_vars) or i > #t)
+
+ -- append global and local(non-external) vars loaded from external files
+ if(options.append_to_vars)then
+  insert_loaded_vars(new_vars, loaded_extrnl_vars, {filter_local_var = true})
+ end
+   
+ return new_vars, last_var_id, nb_added_vars
+end
+
+
+function applyVars(val, vars, options)
+    local str = val
+	local tmp_str = ''
+	
+	local vars_defaults = {fname = nil, line = nil}
+	local options = options or vars_defaults
+		
+	-- init missing key+value
+	options = set_defaults(options, vars_defaults)
+	
+	log_expression_updates(expr_update_log, options)
+
+	local pattern  = '\\%(_?[a-zA-Z][a-zA-Z_0-9]*)\\%'		
+	
+	repeat
+	 local matches = re.match(str, pattern)
+	 
+	 local isGlobal, apply = false, false
+	 
+	 if(matches ~= nil)then   
+	   isGlobal = (string.utf8sub(matches[2].str, 1, 1) == '_')
+	   
+	   local key_global = string.lower(string.utf8sub(matches[2].str, 2, -1))
+	   local key_local = string.lower(matches[2].str)
+	   
+	   --apply = (isGlobal and vars.global[key_global] ~= nil) or (not isGlobal and vars.locals[key_local] ~= nil)
+	   apply = (isGlobal and vars.global[key_global] ~= nil) or (not isGlobal and fields_lookup(vars.locals, {key_local, options.fname, 'val'}) ~= nil)
+	   
+	   if(apply)then
+	    local str_2b_updated = options.full_str
+
+	    if(isGlobal)then
+ 		 str = re.sub(str, matches[1].str, vars.global[key_global])		 
+		 str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, vars.global[key_global]) or nil
+	    else 
+		      local current_tmp_local_var = fields_lookup(vars.locals, {key_local, options.fname, 'val'})
+		      str = re.sub(str, matches[1].str, current_tmp_local_var)
+			  str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, current_tmp_local_var) or nil
+		     end
+		
+        -- tba: insert updated expresion here		
+        if(str_2b_updated and str_2b_updated ~= options.full_str)then
+		  options.full_str = str_2b_updated
+		  log_expression_updates(expr_update_log, options)
+		end			 
+		
+	   else -- undefined global/local-> log and notify about it then test the rest of the non-matched sub-string
+	        
+		   -- log the missing constant
+		   if(isGlobal)then
+                local expre_line_tmp = fields_lookup(expr_update_log, {options.fname, 'lines', options.line})			 
+                local expre_update_id = expre_line_tmp and #expre_line_tmp or 0
+                
+                -- log the current missing global constant
+                if(fields_lookup(vars_log.undefined_vars.global, {options.fname, options.line, key_global}) == nil)then
+                  init_fields(vars_log.undefined_vars.global, expre_update_id, {options.fname, options.line, key_global})
+                end
+
+		   else
+                local expre_line_tmp = fields_lookup(expr_update_log, {options.fname, 'lines', options.line})			 
+                local expre_update_id = expre_line_tmp and #expre_line_tmp or 0
+                
+                -- log the current missing local constant
+                if(fields_lookup(vars_log.undefined_vars.locals, {options.fname, options.line, key_local}) == nil)then
+                  init_fields(vars_log.undefined_vars.locals, expre_update_id, {options.fname, options.line, key_local})
+                end
+
+			   end
+
+		   
+		   -- tmp_str = str:utf8sub(1, matches[1].last)
+           -- utf8sub could not work correctly if used with a non-ASCII string		   
+		   -- it uses str:sub(first_byte, last_byte) that somehow treats 2 bytes as if they are 1 byte
+		   -- for example this string: str = م%a_var%x (م is 2 bytes) 
+		   -- and the result of: str:utf8sub(1, matches[1].last) as str:utf8sub(1, 9)
+		   -- will produce م%a_var%x rather than م%a_var%
+
+		   tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
+		   tmp_str_matches = re.match(str, tmp_pattern)
+		   
+		   if(tmp_str_matches ~= nil)then
+		    tmp_str = tmp_str .. tmp_str_matches[2].str
+			str = tmp_str_matches[3].str
+		   end
+
+	   end
+	   	   	   
+     end
+
+	until(matches == nil)
+	
+ return (tmp_str .. str)
+end
+
+
+
 -- show help
 function showHelp()
      local tmp_conf = {}
@@ -456,7 +927,7 @@ function showHelp()
 					  '\n  1-you can add "%ask" after the replace_expression  to "confirm" (and possibly edit) the replacement text.' ..
 					  '\n\n  2-if you add "%hint rule_description" after the replace_expression (and after %ask expression if it exists), the "rule_description"' ..
 					  '\n     will be used as a description text in the replacements log dialog for the rule applied (otherwise the replace_expression is used).' ..
-					  '\n\n  3-Lines that start with  # are treated as comments and thus ignonred (so is for empty lines).'
+					  '\n\n  3-Lines that start with # are treated as comments and thus ignored (so is for empty lines).'
 
      -- GUI
      tmp_conf = { {class = "label"; x = 0; y = 0; height = 1; width = 1; label = help_str; } }
@@ -506,7 +977,8 @@ end
 
 function display_time(mseconds)
   local seconds = tonumber(mseconds)/1000
-  local mscs = tonumber(mseconds) % 1000  
+  local mscs = tonumber(mseconds) % 1000
+  
 
   if(seconds <= 0) then return "00:00:00." .. mscs;
   else
@@ -515,6 +987,171 @@ function display_time(mseconds)
     secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
     return hours .. ":" .. mins .. ":" .. secs .. "." .. mscs
   end
+end
+
+
+
+
+function set_defaults(tbl, vals)
+   for k, v in pairs(vals)do
+    if(tbl[k] == nil)then
+	 tbl[k] = v
+	end 
+   end
+   
+ return tbl
+end
+
+
+function value_exists(t, element)
+  for _, value in pairs(t) do
+    if(trim(string.lower(value)) == trim(string.lower(element))) then
+      return true
+    end
+  end
+  return false
+end
+
+
+function has_var(str)	 
+ return (str ~= nil and re.match(str, '\\%(_?[a-zA-Z][a-zA-Z_0-9]*)\\%') ~= nil)
+end
+
+
+-- tbr
+function print_vars(vars)
+   for key_type, arr_vars in pairs(vars) do
+   
+    if(string.lower(key_type) == 'global')then
+	  for k, v in pairs(arr_vars) do
+       aegisub.debug.out('_%s = %s\n', k, v);
+      end
+	  
+	elseif(string.lower(key_type) == 'locals')then  
+	  for k, f in pairs(arr_vars) do
+	   for fname, shit in pairs(f) do
+        aegisub.debug.out('%s = %s , discard = %s in file: %s\n', k, tostring(shit.val), tostring(shit.discard), fname)
+	   end	
+
+      end
+	end
+    
+  end
+end
+
+
+
+function insert_loaded_vars(src_vars, loaded_vars, options)
+   local options_defaults = {ignore_vars_type = '', filter_local_var = false}
+   local options = options or options_defaults
+		
+	-- init missing key+value
+   options = set_defaults(options, options_defaults)
+
+   for key_type, arr_vars in pairs(loaded_vars) do
+   
+    if(trim(options.ignore_vars_type:lower()) ~= 'global' and string.lower(key_type) == 'global')then
+	  for key_global, var_value in pairs(arr_vars) do
+	   
+	   -- copy only non-existing vars & prioritize vars defined in the current file over the loaded ones from external files
+	   if(src_vars.global[trim(string.lower(key_global))] == nil)then
+         src_vars.global[trim(string.lower(key_global))] = var_value
+       end   
+	   
+      end
+	  
+	elseif(trim(options.ignore_vars_type:lower()) ~= 'locals' and string.lower(key_type) == 'locals')then  
+	  for key_local, f in pairs(arr_vars) do
+	   for fname, data in pairs(f) do
+	   
+	    if((not options.filter_local_var) or (options.filter_local_var and not data.discard))then 
+		 init_fields(src_vars.locals, {val = data.val, discard = data.discard}, {key_local, fname})
+		end
+        --aegisub.debug.out('%s = %s , discard = %s in file: %s\n', key_local, tostring(data.val), tostring(data.discard), fname)
+	   end	
+
+      end
+	end
+    
+  end
+end
+
+
+
+function fields_lookup(obj, args)
+    local unpack = table.unpack or unpack
+    local sze = args and #args or 0
+
+    if(obj == nil or sze == 0) then return nil, sze
+    else 
+        if(sze > 1)then
+            if(obj[args[1]] == nil)then return nil, sze
+            elseif(type(obj[args[1]]) ~= 'table')then return nil, -1
+            else return fields_lookup(obj[args[1]], {unpack(args, 2)})
+                end
+        else return obj[args[1]], sze
+            end
+        end
+end
+
+
+function init_fields(obj, value, args)
+     local unpack = table.unpack or unpack
+     local sze = #args
+
+     if(sze == 1)then obj[args[sze]] = value
+     else    
+          if(obj[args[1]] == nil or type(obj[args[1]]) ~= 'table' )then
+           obj[args[1]] = {}
+          end 
+
+          init_fields(obj[args[1]], value, {unpack(args, 2)})
+         end         
+     
+
+end
+
+function log_expression_updates(expr_log, options)
+    local vars_defaults = {fname = nil, line = nil}
+	local options = options or vars_defaults
+		
+	-- init missing key+value
+	options = set_defaults(options, vars_defaults)
+	
+	-- log expression values updates if possible
+	if(options.fname ~= nil and options.line ~= nil and options.full_str ~= nil)then
+	 local expre_line, lvl = fields_lookup(expr_log, {options.fname, 'lines', options.line})
+	 
+	 if(expre_line == nil)then init_fields(expr_log, {options.full_str}, {options.fname, 'lines', options.line})
+	 elseif(not value_exists(expre_line, options.full_str))then table.insert(expre_line, options.full_str) end
+
+	end
+	
+end	
+
+
+-- sorted non-numiric table keys iterator
+function spairs(t, order)
+    -- collect the keys
+    local keys = {}
+    for k in pairs(t) do table.insert(keys, k) end
+
+    -- if order function given, sort by it by passing the table and keys a, b,
+    -- otherwise just sort the keys 
+    if order then
+        table.sort(keys, function(a,b) return order(t, a, b) end)
+    else
+        table.sort(keys)
+    end
+
+    -- return the iterator function
+    local i = 0
+    return function()
+        i = i + 1
+        if keys[i] then
+            return keys[i], t[keys[i]]
+        end
+    end
 end
 
 aegisub.register_macro(script_name, script_description, appContext)
