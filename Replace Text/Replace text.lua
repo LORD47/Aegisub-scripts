@@ -238,7 +238,7 @@ function replaceNames(subtitles, selected_lines, active_line)
     end -- end of: if(#rules > 0)then
 
     -- print Undefined Local/Global vars
-    -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expresion_update_id} }}, locals = {'fname' = {} }}}
+    -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expression_update_id} }}, locals = {'fname' = {} }}}
 	 local nb_global_local = 0
 	 local captions = {global = "Global", locals = "Local"}
 	 local var_title_printed = {global = false, locals = false}
@@ -733,9 +733,7 @@ function loadVars(vars, t, idx, options)
  	      aegisub.debug.out(' cmd load_file: "%s" @line %d in file: "%s"\n', trim(cmd.matches[2].str), t[i].line, options.fname)
 		  loaded_extrnl_vars = load_external_files(trim(cmd.matches[2].str), loaded_extrnl_vars)
 
-		  if(true)then -- tbv
-			insert_loaded_vars(tmp_vars, loaded_extrnl_vars)
-		  end
+		  insert_loaded_vars(tmp_vars, loaded_extrnl_vars)
 		 
 		  last_var_id = i + 1
 
@@ -851,7 +849,7 @@ function applyVars(val, vars, options)
 			  str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, current_tmp_local_var) or nil
 		     end
 		
-        -- tba: insert updated expresion here		
+        -- insert and log the updated expression
         if(str_2b_updated and str_2b_updated ~= options.full_str)then
 		  options.full_str = str_2b_updated
 		  log_expression_updates(expr_update_log, options)
