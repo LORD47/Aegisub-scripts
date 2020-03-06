@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.0"
+script_version = "3.1"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -93,26 +93,26 @@ function replaceNames(subtitles, selected_lines, active_line)
 	  local dlg_st_at = 0
 
 	  for i = 1, #subtitles do
-	   local line = subtitles[i]
-
-	   if(line.class == "dialogue")then
-		idx = idx + 1
-
-		if(dlg_st_at == 0)then dlg_st_at = i end
-		
-		local str, _, tags, tmp_nbRplcdWrds = replaceText(i, idx, rules, line.text, true, rplcd_at_lines, needs_conf, true)
-		nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
-
-		if(tmp_nbRplcdWrds > 0)then		
-		 line.text = tags .. str
-		 subtitles[i] = line
-		end
-
-	   end
-
+    	   local line = subtitles[i]
+    
+    	 if(line.class == "dialogue")then
+    		idx = idx + 1
+    
+    		if(dlg_st_at == 0)then dlg_st_at = i end
+    		
+    		local str, _, tags, tmp_nbRplcdWrds = replaceText(i, idx, rules, line.text, true, rplcd_at_lines, needs_conf, true)
+    		nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
+    
+    		if(tmp_nbRplcdWrds > 0)then		
+    		    line.text = tags .. str
+    		    subtitles[i] = line
+    		end
+    
+    	end
+    
 	  end
 
-	  -- count number of replacements that need confrimation
+	  -- count number of replacements that need confirmation
 	  local total_repls_to_review = 0
 	  for _, val in pairs(needs_conf) do total_repls_to_review = total_repls_to_review + val.total_rules  end
 
@@ -127,24 +127,24 @@ function replaceNames(subtitles, selected_lines, active_line)
 	   local reviewed_repls = 0
 
 	   repeat
-		 tmp_conf = {}
-		 tmp_tbl = {}
-		 cfg_res = ""
-		 cntrl_list = {}
+		  tmp_conf = {}
+		  tmp_tbl = {}
+		  cfg_res = ""
+		  cntrl_list = {}
 
-         local pos_y = 0
-		 local current_row = 0
+          local pos_y = 0
+		  local current_row = 0
 
 		  for key, val in pairs(needs_conf) do
 		   local line = subtitles[key]
 
 		   for v, rule in pairs(val.rules) do
-		      reviewed_repls = reviewed_repls + 1
-		      local str, old_str, tags, _ = replaceText(i, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
+		       reviewed_repls = reviewed_repls + 1
+		       local str, old_str, tags, _ = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
 
 				-- tags
 				-- label
-				tmp_tbl = { class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key+1)-dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules);  x = 0; y = pos_y; height = 1; width = 1; }
+				tmp_tbl = { class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules);  x = 0; y = pos_y; height = 1; width = 1; }
 				table.insert(tmp_conf, tmp_tbl)
 
 				-- edit text
@@ -201,42 +201,44 @@ function replaceNames(subtitles, selected_lines, active_line)
 			if(#cntrl_list == 0)then break end
 
 			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Close"} )
+
 			if(tostring(cfg_res) ~= "false" and (string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip"))then
-			 for cntrl_item_key, cntrl_item_val in pairs(cntrl_list)do
 
-			  sub_idx , rule_idx = cntrl_item_val:match("(%d+)%_(%d+)")
-			  sub_idx, rule_idx = tonumber(sub_idx), tonumber(rule_idx)
+				for cntrl_item_key, cntrl_item_val in pairs(cntrl_list)do
+				   local sub_idx , rule_idx = cntrl_item_val:match("(%d+)%_(%d+)")
+				   sub_idx, rule_idx = tonumber(sub_idx), tonumber(rule_idx)
 
-			  if(string.lower(cfg_res) == "replace")then
+				   if(string.lower(cfg_res) == "replace")then
 
-			   if(config["confirm_chkbx_" .. cntrl_item_val])then
-			   	-- replace the confirmed text
-				local line = subtitles[sub_idx]
+				      if(config["confirm_chkbx_" .. cntrl_item_val])then
+						 -- replace the confirmed text
+						 local line = subtitles[sub_idx]
 
-			   	-- log stats -> must be done before the next step
-				_, _, _, tmp_nbRplcdWrds = replaceText(sub_idx, ((sub_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
+						 -- log stats -> must be done before the next step
+						 _, _, _, tmp_nbRplcdWrds = replaceText(sub_idx, ((sub_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
 
-                nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
+						 nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
 
-			    line.text = trim(config["line_tags_" .. cntrl_item_val]) .. trim(config["cr_word_" .. cntrl_item_val])
-				subtitles[sub_idx] = line
-			   end
-			  end -- end of: if(string.lower(cfg_res) == "replace")then
+						 line.text = trim(config["line_tags_" .. cntrl_item_val]) .. trim(config["cr_word_" .. cntrl_item_val])
+						 subtitles[sub_idx] = line
+				      end
 
-			  table.remove(needs_conf[sub_idx].rules, rule_idx)
+				   end -- end of: if(string.lower(cfg_res) == "replace")then
 
-			  needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
-			 end
+				   table.remove(needs_conf[sub_idx].rules, rule_idx)
+
+				   needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
+				end
 
 			end
 
-			until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
+	   until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
 	 end -- end of: if(total_repls_to_review > 0)then
 
 	 showStats(rplcd_at_lines)
 
     end -- end of: if(#rules > 0)then
-
+--print_vars(vars_tbl) -- tbr
     -- print Undefined Local/Global vars
     -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expression_update_id} }}, locals = {'fname' = {} }}}
 	 local nb_global_local = 0
@@ -312,7 +314,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 	  aegisub.debug.out(an_error .. "\n")
 	 end
 	end
-	
+
     aegisub.debug.out('\n----------------------------------------------------------\nReplaced %d word(s).\n', nbRplcdWrds)
   end -- end of: if(filenames ~= nil)	
 end
@@ -436,13 +438,14 @@ end
 
 
 function get_command_type(str)
-  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint'}
+  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check'}
   local cmds = { {pattern = '^\\%load\\s+(.+)', cmd_type = arr_cmd_types[1]},
                  {pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[2]},
                  {pattern = '^\\%\\$([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[3]},
                  {pattern = '^\\%1\\s+?(.+)', cmd_type = arr_cmd_types[4]},
                  {pattern = '^\\%2\\s+?(.+)', cmd_type = arr_cmd_types[5]},
                  {pattern = '^\\%hint\\s+?(.+)', cmd_type = arr_cmd_types[6]},
+                 {pattern = '^\\%check\\s+m\\s*=\\s*([^;]+?)(?:(?:;\\s*pp\\s*=\\s*((?:\\[[^]]+?\\]\\s*?\\[[^]]*?\\];?\\s*?)+)$)|;?$)', cmd_type = arr_cmd_types[7]},
 				 {pattern = '^\\%ask$', cmd_type = 'confirm'}
                }
 
@@ -479,8 +482,8 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 	  local tmp = {}
 	  local i = 1
 	  local tmp_class, crnt_ln
-	  local rule_class = ''
 	  local new_rule = {valid = false, hint = '', has_confirm = false}
+	  local rule_class = {name = ''}
 
 	  -- reset vars_tbl.locals
 	  vars_tbl.locals = {}
@@ -499,12 +502,13 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 			    insert_loaded_vars(vars_tbl, loaded_extrnl_vars, {filter_local_var = true})
 				
 				new_rule = {valid = false, hint = '', has_confirm = false}
+				rule_class = {name = ''}
 
         elseif(cmd.cmd_type == 'global_var' or cmd.cmd_type == 'local_var')then
 		        local old_i = i
-			
+
 				new_rule = {valid = false, hint = '', has_confirm = false}
-		        vars_tbl, i = loadVars(vars_tbl, t, i, {log_vars = vars_log.log_type, fname = filename, append_to_vars = true})
+		        vars_tbl, i = loadVars(vars_tbl, t, i, {log_vars = vars_log.log_type, fname = filename, append_to_vars = true})			
 
 				-- "loadVars" will load all the successive "vars" starting from line[old_i] and "i" value will be set if it's loaded some vars
 				-- so no need to increment the value of "i" later
@@ -512,6 +516,7 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 
 		elseif(cmd.cmd_type == 'regex_match')then
 		        new_rule = {valid = false, hint = '', has_confirm = false}
+				rule_class = {name = ''}
          
 		        local cmd_replace = t[i+1] and get_command_type(trim(t[i+1].str)) or nil
 
@@ -519,7 +524,7 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
                     wrng_names = applyVars(trim(cmd.matches[2].str), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
                     cr_name = applyVars(trim(cmd_replace.matches[2].str), vars_tbl, {fname = filename, line = t[i+1].line, full_str = t[i+1].str})
                 
-                    rule_class = 'regex'
+                    rule_class.name = 'regex'
 					new_rule.valid = true
 					new_rule.hint = trim(cmd_replace.matches[2].str)
                  
@@ -529,19 +534,65 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 					 new_rule.valid = false
                 	 table.insert(invalid_commands, string.format("Rule was ignored! Regex match with no replacement\n@Line %d in file: %s:\n %s\n", t[i].line, filename, trim(t[i].str)))
                 	end
-        
+
+		elseif(cmd.cmd_type == 'check')then
+		        new_rule = {valid = false, hint = '', has_confirm = false}
+				rule_class = {name = ''}
+
+			  
+				    if(cmd.matches[3] ~= nil)then -- this won't happen, but I added it now for the future
+					    rule_class['pp'] = {}
+
+					    local tmp_pp_str = trim(cmd.matches[3].str)
+						 
+						repeat
+						   local tmp_pattern = '.*?\\[([^]]+?)\\]\\s*?\\[([^]]*?)\\](.*)$'
+						   local tmp_str_matches = re.match(tmp_pp_str, tmp_pattern)
+						   
+						   if(tmp_str_matches ~= nil)then							
+							  local tmp_pp = {str_match = applyVars(tmp_str_matches[2].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str}),
+							                  str_replace = applyVars(tmp_str_matches[3].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+							                 }
+
+                              table.insert(rule_class.pp, tmp_pp) 
+							  tmp_pp_str = tmp_str_matches[4].str
+						   end
+
+						until(tmp_str_matches == nil) 
+						 
+                         
+					else 
+					    local tmp_info_msg = string.format('Error! cmd [check] is missing expression "post-processing replacement:"\n')
+						tmp_info_msg = tmp_info_msg .. string.format("@Line %d in file %s:\n %s\n" ,t[i].line, filename, t[i].str)
+						tmp_info_msg = tmp_info_msg .. string.format("this rule will be applied without the post-processing\n")
+
+						table.insert(invalid_commands, tmp_info_msg)
+					    end
+
+
+
+                wrng_names = applyVars(trim(cmd.matches[2].str), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+                cr_name = wrng_names
+
+                rule_class.name = 'check'
+			    new_rule.valid = true
+				new_rule.has_confirm = true
+			    new_rule.hint = wrng_names
+
         elseif(cmd.cmd_type == 'confirm')then new_rule.has_confirm = true
         elseif(cmd.cmd_type == 'hint')then new_rule.hint = trim(cmd.matches[2].str)
    		elseif(cmd.cmd_type == nil)then
 		        tmp = {}
 		        new_rule = {valid = false, hint = '', has_confirm = false}
+				rule_class = {name = ''}
+
    				local tmp = split(trim(t[i].str), '+') -- Format: correct_name+false_name[(\s|\/)false_name]
    
    				if(#tmp > 1)then -- split with Arabic string return inverse index   
    					wrng_names = trim(tmp[1])
    					cr_name = trim(tmp[2])
 
-   					rule_class = 'normal'
+   					rule_class.name = 'normal'
 
 					new_rule.valid = true
 					new_rule.hint = cr_name
@@ -557,15 +608,22 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
               if(cmd_next == nil or (cmd_next.cmd_type ~= 'confirm' and cmd_next.cmd_type ~= 'hint'))then
 
                   if(rules_keys[wrng_names] == nil)then -- not duplicate rule
-                   table.insert(rules, {cr_name = cr_name, wrng_names = wrng_names, class = rule_class, confirm = new_rule.has_confirm, hint = new_rule.hint})
-                   rules_keys[wrng_names] = {cr_name = cr_name, class = rule_class, hint = new_rule.hint, filename = filename}
+					   local tmp_new_rule = {cr_name = cr_name, wrng_names = wrng_names, class = rule_class.name, confirm = new_rule.has_confirm, hint = new_rule.hint}
+					   
+					   if(trim(rule_class.name:lower()) == 'check' and rule_class.pp ~= nil)then
+						  tmp_new_rule['check'] = rule_class.pp
+					   end
+							
+					   table.insert(rules, tmp_new_rule)
+					   rules_keys[wrng_names] = {cr_name = cr_name, class = rule_class.name, hint = new_rule.hint, filename = filename}
+
                   else -- possible duplicate rule
 
 					   local tmp_info_msg = string.format('Warning! Duplicate rule exists in file: %s\n', filename)
                  	   tmp_info_msg = tmp_info_msg .. string.format('This rule already exists in file: %s\n', rules_keys[wrng_names].filename)
                  	   tmp_info_msg = tmp_info_msg .. string.format('The rule is:\n %s \n %s\nThis duplicate is ignored.\n', wrng_names, cr_name)
                  
-                 	   if(rules_keys[wrng_names].class ~= rule_class)then
+                 	   if(rules_keys[wrng_names].class ~= rule_class.name)then
                  	     tmp_info_msg = tmp_info_msg .. string.format('Although, one is a "Regex" unlike the other,\nin file: %s\n', rules_keys[wrng_names].filename)
                  	   end
 					   
@@ -588,11 +646,8 @@ end
 
 
 function confirmThis(line_idx, rule, conf_tbl, tags)
-	if(conf_tbl[line_idx] == nil)then 
-		 conf_tbl[line_idx] = {nb_reviewed_rules = 0, rules = {rule}}
-	else
-		table.insert(conf_tbl[line_idx].rules, rule)
-	end
+	if(conf_tbl[line_idx] == nil)then conf_tbl[line_idx] = {nb_reviewed_rules = 0, rules = {rule}}
+	else table.insert(conf_tbl[line_idx].rules, rule)end
 
 	conf_tbl[line_idx]['total_rules'] = #conf_tbl[line_idx].rules
 end
@@ -640,37 +695,55 @@ end
 
 
 function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, needs_conf, log_stats)
-		local nbRplcdWrds = 0
-	    local tags, s = line_txt:match("(%{[^}]+%})(.+)")
+	 local nbRplcdWrds = 0
+	 local tags, s = line_txt:match("(%{[^}]+%})(.+)")
 
-	    if(tags == nil)then
- 	     tags = ""
-	     s = line_txt
-	    elseif(s == nil)then s = "" end
+	 if(tags == nil)then
+		 tags = ""
+		 s = line_txt
+	 elseif(s == nil)then s = "" end
 
-		local str = s
-		local original_str = str
-		local old_str
+	 local str = s
+	 local original_str = str
+	 local old_str
 
-	    for j = 1, #rules do
+	 for j = 1, #rules do
 		 local nbRep
 		 old_str = str
 
 		 if(rules[j].class == 'regex')then	-- "regex" replacement
-		  if(re.match(str, rules[j].wrng_names) ~= nil)then -- rule pattern matched	
-		   if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
-			confirmThis(i, rules[j], needs_conf, tags)
-		   else -- text replace does not need confirmation
-			   str = re.sub(str, rules[j].wrng_names, rules[j].cr_name)
-			   nbRplcdWrds = nbRplcdWrds + 1
+			if(re.match(str, rules[j].wrng_names) ~= nil)then -- rule pattern matched
 
-			   if(log_stats)then
-			    if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
-			    else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+			   if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
+				   confirmThis(i, rules[j], needs_conf, tags)
+
+			   else -- text replace does not need confirmation
+				   str = re.sub(str, rules[j].wrng_names, rules[j].cr_name)
+				   nbRplcdWrds = nbRplcdWrds + 1
+
+				   if(log_stats)then
+					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
+					  else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+				   end
 			   end
-		   end
 
-		  end
+			end
+
+         elseif(rules[j].class == 'check')then	-- to manual edit in confirm pop-up
+            if(check_confirm)then		 
+				local tmp_checked_str = str
+
+				if(rules[j].check ~= nil)then -- has post-processing
+				   for _, pp_expre in ipairs(rules[j].check)do
+				      tmp_checked_str = re.sub(tmp_checked_str, pp_expre.str_match, pp_expre.str_replace)
+				   end
+				end
+	 
+				if(re.match(tmp_checked_str, rules[j].wrng_names) ~= nil)then
+				  confirmThis(i, rules[j], needs_conf, tags)
+				end
+				 
+		     else nbRplcdWrds = nbRplcdWrds + 1 end
 
 		 else -- "normal" replacement
 			 pos, _ = string.find(trim(rules[j].wrng_names), '%/') -- check if split is by "/" -> we're replacing multiple words
@@ -682,30 +755,29 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 			 if(#tmp == 0)then aegisub.debug.out("\n %s @Line %d", "Invalid dictionnairy string to split", j) end
 
 			 for k = 1, #tmp do
-			  if( not isempty(tmp[k]) )then
-			   nbRep = 0
-			   str, nbRep = string.gsub(str, '%' .. trim(tmp[k]), rules[j].cr_name)
-			   str, _ = string.gsub(str, "%&%&", ' ') -- replace $$ after a word with a space -> because Trim in a rule eliminates both "spaces" at rigt and left
+				if( not isempty(tmp[k]) )then
+				   nbRep = 0
+				   str, nbRep = string.gsub(str, '%' .. trim(tmp[k]), rules[j].cr_name)
+				   str, _ = string.gsub(str, "%&%&", ' ') -- replace $$ after a word with a space -> because Trim in a rule eliminates both "spaces" at rigt and left
 
-			   if(nbRep ~= nil and nbRep > 0)then -- str has been changed
+				   if(nbRep ~= nil and nbRep > 0)then -- str has been changed
+						if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
+						    confirmThis(i, rules[j], needs_conf, tags)
+						    str = old_str
+						else -- text replace does not need confirmation
+							nbRplcdWrds = nbRplcdWrds + 1
 
-				if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
-				 confirmThis(i, rules[j], needs_conf, tags)
-				 str = old_str
-				else -- text replace does not need confirmation
-					nbRplcdWrds = nbRplcdWrds + 1
+							if(log_stats)then	
+							   if(rplcd_at_lines[tmp[k]] ~= nil)then rplcd_at_lines[tmp[k]].lines = rplcd_at_lines[tmp[k]].lines .. ' ' .. idx
+							   else rplcd_at_lines[tmp[k]] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+							end
+						end
 
-					if(log_stats)then	
-					 if(rplcd_at_lines[ tmp[k] ] ~= nil) then  rplcd_at_lines[ tmp[k] ].lines = rplcd_at_lines[ tmp[k] ].lines .. ' ' .. idx
-					 else rplcd_at_lines[ tmp[k] ] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
-					end
-				end
-
-			   end
-			  end -- end of: if( not isempty(tmp[k]) )then
+				   end
+				end -- end of: if( not isempty(tmp[k]) )then
 			 end -- end of: for k = 1, #tmp do
 		 end -- end of: if(rules[j].class == 'regex')then
-		end -- end of: for j = 1, #rules do
+	 end -- end of: for j = 1, #rules do
 
   return str, original_str, tags, nbRplcdWrds, rplcd_at_lines
 end
@@ -886,8 +958,8 @@ function applyVars(val, vars, options)
 		   -- and the result of: str:utf8sub(1, matches[1].last) as str:utf8sub(1, 9)
 		   -- will produce م%a_var%x rather than م%a_var%
 
-		   tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
-		   tmp_str_matches = re.match(str, tmp_pattern)
+		   local tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
+		   local tmp_str_matches = re.match(str, tmp_pattern)
 		   
 		   if(tmp_str_matches ~= nil)then
 		    tmp_str = tmp_str .. tmp_str_matches[2].str
