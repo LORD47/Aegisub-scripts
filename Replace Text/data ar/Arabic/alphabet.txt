@@ -1,0 +1,58 @@
+%$_ar_hmz = ء
+%$_ar_aa = آ
+%$_ar_a = أ
+%$_ar_a_w = ا
+%$_ar_a_9 = إ
+%$_ar_a_mksra = ى
+%$_ar_a_mksra_hmz = ئ
+%$_ar_a_o = ؤ
+
+%$_ar_b = ب
+
+%$_ar_t = ت
+%$_ar_t_mrbta = ة
+
+%$_ar_th = ث
+%$_ar_j = ج
+%$_ar_7 = ح
+%$_ar_5 = خ
+%$_ar_d = د
+%$_ar_thl = ذ 
+%$_ar_r = ر
+%$_ar_z = ز
+%$_ar_s = س
+%$_ar_sh = ش
+%$_ar_sd = ص
+%$_ar_dhd = ض
+%$_ar_6 = ط
+%$_ar_tha = ظ 
+%$_ar_3 = ع
+%$_ar_gh = غ
+%$_ar_f = ف
+%$_ar_9 = ق
+%$_ar_k = ك
+%$_ar_l = ل
+%$_ar_m = م
+%$_ar_n = ن
+%$_ar_h = ه
+%$_ar_w = و
+%$_ar_y = ي
+
+# علامات التشكيل
+%$_ar_fatha = َ
+%$_ar_dhama = ُ
+%$_ar_kasra = ِ
+%$_ar_skn = ْ
+%$_ar_shadda = ّ
+%$_ar_7araka = %_ar_fatha%|%_ar_dhama%|%_ar_skn%|%_ar_shadda%
+
+
+%$_ar_tnwin_f = ً
+%$_ar_tnwin_dh = ٌ
+%$_ar_tnwin_k = ٍ
+%$_ar_tnwin = %_ar_tnwin_f%|%_ar_tnwin_dh%|%_ar_tnwin_k%
+
+%$_ar_tachkeel = %_ar_7araka%|%_ar_tnwin%
+
+%$_ar_letters = اأآإءىئؤبتثجحخدذرزسشصضطظعغفقكلمنهوية
+
