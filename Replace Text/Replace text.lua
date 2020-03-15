@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.2"
+script_version = "3.3"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -19,6 +19,8 @@ invalid_commands = {}
 expr_update_log = {}
 
 ignorable_rules = {added = {}, current = {}, final = {}, ignored = {}}
+
+user_tools = {modules = {}, list = {}}
 
 default_file_path = ''
 
@@ -65,6 +67,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 	  vars_tbl = {global = {}, locals = {}}
 	  expr_update_log = {}
 	  ignorable_rules = {added = {}, current = {}, final = {}, ignored = {}}
+	  user_tools = {modules = {}, list = {}}
       default_file_path = ''
 
    if(filenames ~= nil)then
@@ -389,7 +392,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
     -- print errors
 	if(#invalid_commands > 0)then
-	 aegisub.debug.out('\n-----------------------[%s invalid command(s) found]-----------------------\n', #invalid_commands)
+	 aegisub.debug.out('\n-----------------------[%s Error/Invalid Command(s) found]-----------------------\n', #invalid_commands)
 
      for _, an_error in ipairs(invalid_commands)do
 	  aegisub.debug.out(an_error .. "\n")
@@ -423,42 +426,31 @@ local dir, fname = filename:match('(.-)([^\\/]-%.?[^%.\\/]*)$')
 end
 
 function load_file(default_file_path, fname)
-
-    local t, set_dir, script_dir = {}, false, lfs.currentdir()
-
+    local t, script_dir = {}, lfs.currentdir()
     local dir, filename = get_file_path(fname)
 
 	local file_path = dir .. filename
-
-	-- check if it's a relative path
-	if(dir == '' or dir.sub(1,1) == '.')then
-      set_dir = true
-
-	elseif(dir.sub(1,1) == '/' or dir.sub(1,1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
-	 if(package.config:sub(1,1) == '\\')then  -- OS is Windows
-	   set_dir = true
-	 end
-	end
+    local set_dir = is_relative_path(dir)
 
 	if(set_dir)then
-	 local path = get_file_path(default_file_path)
-     lfs.chdir(path)
+	   local path = get_file_path(default_file_path)
+       lfs.chdir(path)
 	end
 
 	local file = io.open(file_path, "rb")
 
     if(file == nil)then aegisub.debug.out('Error! External file: "%s" doesn\'t exist -> ignoring this file.\n', file_path)
 	else -- file exists
-	    aegisub.debug.out("Loading the external file: %s\n", file_path)
+	      aegisub.debug.out("Loading the external file: %s\n", file_path)
 
-	    local file_lines = file:read("*a")
-	    file:close()
+	      local file_lines = file:read("*a")
+	      file:close()
 
-	    t = split(trim(file_lines), '\n')
-	    t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
+	      t = split(trim(file_lines), '\n')
+	      t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
 	   end
 
-  if(set_dir)then lfs.chdir(script_dir)end
+    if(set_dir)then lfs.chdir(script_dir)end
 
  return t
 end
@@ -519,14 +511,16 @@ end
 
 
 function get_command_type(str)
-  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check'}
+  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check', 'func', 'require'}
   local cmds = { {pattern = '^\\%load\\s+(.+)', cmd_type = arr_cmd_types[1]},
+                 {pattern = '^\\%require\\s+(.+)', cmd_type = arr_cmd_types[9]},
                  {pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[2]},
                  {pattern = '^\\%\\$([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[3]},
                  {pattern = '^\\%1\\s+?(.+)', cmd_type = arr_cmd_types[4]},
                  {pattern = '^\\%2\\s+?(.+)', cmd_type = arr_cmd_types[5]},
                  {pattern = '^\\%hint\\s+?(.+)', cmd_type = arr_cmd_types[6]},
                  {pattern = '^\\%check\\s+m\\s*=\\s*([^;]+?)(?:(?:;\\s*pp\\s*=\\s*((?:\\[[^]]+?\\]\\s*?\\[[^]]*?\\];?\\s*?)+)$)|;?$)', cmd_type = arr_cmd_types[7]},
+                 {pattern = '^\\%func\\s+([a-zA-Z][a-zA-Z\\_0-9]*)(?:\\(([^)]*)\\))?;\\s*(.+)$', cmd_type = arr_cmd_types[8]},
 				 {pattern = '^\\%ask$', cmd_type = 'confirm'}
                }
 
@@ -585,13 +579,157 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 				new_rule = {valid = false, hint = '', has_confirm = false}
 				rule_class = {name = ''}
 
+        elseif(cmd.cmd_type == 'require')then
+		        local script_file = trim(cmd.matches[2].str)
+				
+				if(package.config:sub(1, 1) == '\\')then  -- OS is Windows
+			       script_file = re.sub(script_file, '\\/', '\\')
+				end
+
+				local full_module_name = script_file
+
+		        local matches = re.match(script_file, '^([^.]+)(\\.lua)?$')
+				
+				if(matches and matches[3])then full_module_name = trim(matches[2].str)
+				else script_file = script_file .. '.lua' end
+ 		        
+		        local current_loaded_file_path = get_file_path(filename)
+		        local current_script_path, module_name = get_file_path(script_file)
+				local is_reltv_path = is_relative_path(current_script_path)			
+
+                aegisub.debug.out('dir "%s"\n', current_loaded_file_path)-- tbr
+
+		        package.path = package.path .. ';' .. current_loaded_file_path .. '?.lua'
+		        
+				if(not is_reltv_path)then
+ 				   package.path = package.path .. ';' .. current_script_path .. '?.lua'
+				   full_module_name = re.sub(module_name, '\\.lua$', '')
+				end
+
+				aegisub.debug.out('package.path = "%s"\n', package.path) -- tbr
+				aegisub.debug.out('full_module_name = "%s"\n', full_module_name) -- tbr
+
+				local status, tmp_module = pcall(require, full_module_name)
+                tmp_module = status and tmp_module or nil
+
+                if(tmp_module ~= nil)then
+				   script_file = package.searchpath(full_module_name, package.path)
+				   script_file = trim(script_file)
+				   
+				   aegisub.debug.out('Loaded Script "%s"\n', script_file)
+
+                   for name, data in pairs(tmp_module)do
+				      if(data['func'] and type(data['func']) == 'function')then					    
+                         
+						 if(data['args_type'] and type(data['args_type']) == 'table')then
+
+						    if(is_array(data['args_type']))then
+					           local optional_args_nb = 0
+						       
+						       if(data.optional)then optional_args_nb = tonumber(data.optional) end
+						       
+						       if(optional_args_nb ~= nil and optional_args_nb >= 0)then
+
+						           if(optional_args_nb <= #data['args_type'])then
+									  if(user_tools.list[name] == nil)then
+										 user_tools.list[name] = {file_name = script_file}
+										 init_fields(user_tools.modules, data, {script_file, name})
+									  
+									  elseif(user_tools.list[name].file_name:lower() ~= script_file:lower())then
+										 table.insert(invalid_commands, string.format('Error! Function "%s" defined in module: "%s" already exists in the module: "%s"!\n', name, script_file, user_tools.list[name].file_name))	
+									  end
+									  
+                                   else local tmp_error = string.format('Error! Function "%s" has invalid "optional" property of value %d, which exceeds the number of its arguments defined in "args_type" property as "%d argument(s)".\n', name, data.optional, #data['args_type'])
+						        	    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						          	    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n') 
+						          	    table.insert(invalid_commands, tmp_error)
+								   end
+						          
+                               else local tmp_error = string.format('Error! Function "%s" has invalid "optional" property, expected "a positive Integer" got value "%s".\n', name, tostring(data.optional))
+						        	tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						          	tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n') 
+						          	table.insert(invalid_commands, tmp_error)   
+					           end
+
+							else
+						       local tmp_error = string.format('Error! Function "%s" invalid "args_type" property, an array is expected".\n', name)
+						       tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file) 
+						       tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						       table.insert(invalid_commands, tmp_error) 						    
+							end
+
+						 elseif(data['args_type'])then
+						    local tmp_error = string.format('Error! Function "%s" has invalid "args_type" property, expected "an array" got "%s".\n', name, tostring(data.args_type))
+						    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						    table.insert(invalid_commands, tmp_error)
+                         else
+						    local tmp_error = string.format('Error! Function "%s" is missing the "args_type" property of type "array".\n', name)
+						    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file) 
+						    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						    table.insert(invalid_commands, tmp_error) 						 
+                         end
+
+					  end
+				   end
+				else
+  				       table.insert(invalid_commands, string.format('Error! Script "%s" not found!\nDefined in file: "%s" @line: %d\n', script_file, filename, t[i].line))
+				    end
+
+        elseif(cmd.cmd_type == 'func')then
+
+                if(user_tools.list[trim(cmd.matches[2].str)] ~= nil)then
+		           new_rule = {valid = false, hint = '', has_confirm = false}
+			       rule_class = {name = ''}
+			       
+			       wrng_names = applyVars(trim(cmd.matches[4].str), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+                   cr_name = wrng_names
+			       
+                   rule_class.name = 'func'
+			       new_rule.hint = wrng_names
+			       
+			       local tmp_func = {name = trim(cmd.matches[2].str), args = {}}				
+			       tmp_func.args = get_func_args(trim(cmd.matches[3].str))
+			       
+			       if(tmp_func.args['error'] == nil)then                         				   
+			           -- tba applyVars on tmp_func.args
+					   local no_error = true
+
+                       for _, param in pairs(tmp_func.args)do
+
+					      while(has_var(trim(param.val)) and no_error)do
+						     local tmp_var_str = param.val
+
+							 param.val = applyVars(trim(param.val), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+							 no_error = (trim(param.val:lower()) ~= trim(tmp_var_str:lower()))
+						  end
+
+					   end
+
+					   if(no_error)then
+			              rule_class['func'] = tmp_func
+			              new_rule.valid = true
+					   else local tmp_error = string.format('Error! Function "%s" has an undefined "constant" as a paramater.\n', tmp_func.name)
+						    tmp_error = tmp_error .. string.format('in file: "%s" @line: %d.\n', filename, t[i].line)
+						    tmp_error = tmp_error .. string.format('This function command is ignored and not loaded.\n')
+						    tmp_error = tmp_error .. string.format('Veiw the [Undefined Global/Local constant(s)] section for more informations about this "constant".\n')
+						    table.insert(invalid_commands, tmp_error)	  
+					   end
+
+			       else
+                       table.insert(invalid_commands, string.format('Error! %s in: %s\nin file: "%s" @line: %d\n', tmp_func.args.error, tmp_func.args.val, filename, t[i].line))
+			        end
+
+                else   table.insert(invalid_commands, string.format('Error! Undefined Function "%s" in file: "%s" @line: %d\n', trim(cmd.matches[2].str), filename, t[i].line))
+                    end
+
         elseif(cmd.cmd_type == 'global_var' or cmd.cmd_type == 'local_var')then
 		        local old_i = i
 
 				new_rule = {valid = false, hint = '', has_confirm = false}
 		        vars_tbl, i = loadVars(vars_tbl, t, i, {log_vars = vars_log.log_type, fname = filename, append_to_vars = true})
 
-				-- "loadVars" will load all the successive "vars" starting from line[old_i] and "i" value will be set if it's loaded some vars
+				-- "loadVars" will load all the successive "vars" starting from line[old_i] and "i" value will be set if it has loaded some vars
 				-- so no need to increment the value of "i" later
 				can_incrmnt = (old_i == i) -- no var were loaded and we can increment the value of "i"
 
@@ -621,23 +759,23 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 				rule_class = {name = ''}
 
 
-				    if(cmd.matches[3] ~= nil)then -- this won't happen, but I added it now for the future
+				    if(cmd.matches[3] ~= nil)then
 					    rule_class['pp'] = {}
 
 					    local tmp_pp_str = trim(cmd.matches[3].str)
 
 						repeat
-						   local tmp_pattern = '.*?\\[([^]]+?)\\]\\s*?\\[([^]]*?)\\](.*)$'
-						   local tmp_str_matches = re.match(tmp_pp_str, tmp_pattern)
+						    local tmp_pattern = '.*?\\[([^]]+?)\\]\\s*?\\[([^]]*?)\\](.*)$'
+						    local tmp_str_matches = re.match(tmp_pp_str, tmp_pattern)
 
-						   if(tmp_str_matches ~= nil)then
-							  local tmp_pp = {str_match = applyVars(tmp_str_matches[2].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str}),
-							                  str_replace = applyVars(tmp_str_matches[3].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
-							                 }
+						    if(tmp_str_matches ~= nil)then
+							   local tmp_pp = {str_match = applyVars(tmp_str_matches[2].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str}),
+							                   str_replace = applyVars(tmp_str_matches[3].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+							                  }
 
-                              table.insert(rule_class.pp, tmp_pp)
-							  tmp_pp_str = tmp_str_matches[4].str
-						   end
+                               table.insert(rule_class.pp, tmp_pp)
+							   tmp_pp_str = tmp_str_matches[4].str
+						    end
 
 						until(tmp_str_matches == nil)
 					end
@@ -685,6 +823,8 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 
 					   if(trim(rule_class.name:lower()) == 'check' and rule_class.pp ~= nil)then
 						  tmp_new_rule['check'] = rule_class.pp
+					   elseif(trim(rule_class.name:lower()) == 'func' and rule_class.func ~= nil)then	  
+					      tmp_new_rule['func'] = rule_class.func
 					   end
 
 					   table.insert(rules, tmp_new_rule)
@@ -837,6 +977,87 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 					  else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 				   end
 				end
+
+         elseif(rules[j].class == 'func')then
+			if(re.match(str, rules[j].wrng_names) ~= nil)then -- rule pattern matched
+
+			   if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
+				   confirmThis(i, rules[j], needs_conf, tags)
+			   else -- text replace does not need confirmation
+				   local capture = get_capture_vals(str, rules[j].wrng_names)
+
+                    while(capture ~= nil)do
+					   if(rules[j].func)then
+					   
+						  if(user_tools.list[rules[j].func.name])then
+							  --user_tools.list[name] = {file_name = script_file}
+							  --init_fields(user_tools.modules, func, {script_file, name})
+							  local func_params = {}
+							  local error_exists = false
+
+							  -- fill function params from capture values if needed
+							  for _, param in ipairs(rules[j].func.args)do
+
+								 --for param_type, param_val in pairs(param)do
+									 aegisub.debug.out('param_type = %s, param.val = %s\n', param.param_type, tostring(param.val))-- tbr
+
+									 if(trim(param.param_type:lower()) == 'capture' and tonumber(param.val) <= #capture)then
+										table.insert(func_params, capture[tonumber(param.val)])
+										aegisub.debug.out('capture[%s] = %s\n', tostring(param.val), capture[tonumber(param.val)])-- tbr
+									 elseif(trim(param.param_type:lower()) == 'capture')then 
+										error_exists = true
+									 else 		   
+										table.insert(func_params, param.val)
+									 end
+								 --end
+
+								 if(error_exists)then
+									table.insert(invalid_commands, string.format('Error! motherfucker!')) -- tbv
+								 end
+
+							  end
+							  
+							  -- eval func
+							  if(not error_exists)then
+							     local current_func = {name = rules[j].func.name,
+								                       data = user_tools.modules[user_tools.list[rules[j].func.name].file_name][rules[j].func.name]
+													  }
+
+								 local func_eval = current_func.data.func(func_params)
+								  
+								 -- tba check validaty of func_eval data
+								 if(true)then -- tba verify nb args compatibility
+
+								    -- check/validate func args type 
+								    local valid_args = true
+								    								    
+								    if(func_eval.error == nil)then
+								        str = re.sub(str, rules[j].wrng_names, func_eval.result, 1)
+								        nbRplcdWrds = nbRplcdWrds + 1
+								       
+								        if(log_stats)then
+								        if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
+								        else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+								        end
+								   
+								    else table.insert(invalid_commands, func_eval.error)
+								        end
+								 
+								 -- else  local tmp_error = string.format('Error! Invalid module data: function "%s" has invalid "optional" property of value %s\n', current_func.name, tostring(current_func.data.optional))
+								             -- tmp_error = tmp_error .. string.format('in Script "%s"\n', user_tools.list[current_func.name].file_name) 
+								       -- table.insert(invalid_commands, tmp_error)
+								     end
+
+							  end
+
+						  end
+					   end
+
+					  capture = get_capture_vals(str, rules[j].wrng_names)
+				   end
+			   end
+
+			end
 
 		 else -- "normal" replacement
 			 pos, _ = string.find(trim(rules[j].wrng_names), '%/') -- check if split is by "/" -> we're replacing multiple words
@@ -1311,6 +1532,118 @@ function spairs(t, order)
             return keys[i], t[keys[i]]
         end
     end
+end
+
+
+function is_relative_path(dir)
+	if(dir == '' or dir.sub(1, 1) == '.')then return true
+	elseif(dir.sub(1, 1) == '/' or dir.sub(1, 1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
+		if(package.config:sub(1, 1) == '\\')then  -- OS is Windows
+		   return true
+		end	
+	end
+	
+  return false 	
+end
+
+
+function get_func_args(str)
+    local pattern = "^([\\\\\\$]?\\d+|\\%(?:_?[a-zA-Z][a-zA-Z_0-9]*\\%)|(?:true|false)|['].*?['])(?:\\s*?,|$)"
+	
+	local tmp_args = {}
+	local tmp_str
+	
+    local matches = re.match(trim(str), pattern)
+	
+	while(matches ~= nil and tmp_str ~= str)do aegisub.debug.out('%sstr = %s\n', tmp_str and '\n' or '', str)-- tbr
+	   local capture = matches[2].str
+ 
+	   local param = get_param_type(capture)
+	   
+	   if(param.param_type)then
+	      if(trim(param.param_type:lower()) == 'string')then table.insert(tmp_args, {param_type = 'string', val = capture})
+	      else table.insert(tmp_args, {param_type = trim(param.param_type:lower()), val = param.matches[2].str}) end
+	      
+	      aegisub.debug.out('match = %s\n', matches[1].str)-- tbr  
+	      aegisub.debug.out('capture = %s\n', capture)-- tbr  
+	      aegisub.debug.out('param_type = %s\n', trim(param.param_type:lower()))-- tbr  
+	      aegisub.debug.out('val = %s\n', param.matches and param.matches[2].str or capture)-- tbr 
+	      
+	      tmp_str = trim(str)
+	      str = trim(str:gsub(matches[1].str:gsub("%p", "%%%1"), '', 1))
+	      matches = re.match(str, pattern)
+	   else return {error = 'Invalid function parameter', val = str} end
+
+	end
+	
+	
+   if(trim(str) ~= '')then return {error = 'Invalid function parameter', val = str}end
+   return tmp_args
+end
+
+
+
+
+function get_param_type(str)
+	local arr_param_types = {'capture', 'number', 'var', 'boolean', 'string'}
+	local params = { 
+	                {pattern = '^[\\\\\\$](\\d+)$', param_type = arr_param_types[1]},
+				    {pattern = '^(\\d+)$', param_type = arr_param_types[2]},
+					{pattern = '^(\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)$', param_type = arr_param_types[3]},
+					{pattern = '^(true|false)$', param_type = arr_param_types[4]},
+					{pattern = '^[\'](.*?)[\']$', param_type = arr_param_types[5]}
+				   }
+
+	local arg = {param_type = nil, matches = nil}
+
+    for _, param in ipairs(params)do
+    
+       local matches = re.match(trim(str), param.pattern)
+    
+       if(matches ~= nil)then
+    	  arg.param_type = trim(param.param_type:lower())
+		  
+    	  if(value_exists(arr_param_types, param.param_type))then arg.matches = matches
+    	  else arg.matches = nil end
+		  
+    	  break
+       end
+    
+    end
+
+ return arg
+end
+
+
+
+function get_capture_vals(str, pattern)
+	local capture = {}    
+
+    local matches  = re.match(str, pattern)
+	
+	if(matches ~= nil)then
+	   local i = 2
+
+	   while(matches[i] ~= nil)do
+	      table.insert(capture, matches[i].str)
+		  aegisub.debug.out('matches[%d] = %s\n', i-1, matches[i].str)-- tbr
+	      i = i + 1
+	   end
+	end
+	
+   return #capture > 0 and capture or nil
+end
+
+
+function is_array(t)
+  local i = 0
+
+  for _ in pairs(t) do
+     i = i + 1
+     if(t[i] == nil)then return false end
+  end
+
+  return true
 end
 
 aegisub.register_macro(script_name, script_description, appContext)
