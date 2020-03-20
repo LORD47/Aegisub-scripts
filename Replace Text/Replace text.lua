@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.2"
+script_version = "3.3"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -19,6 +19,8 @@ invalid_commands = {}
 expr_update_log = {}
 
 ignorable_rules = {added = {}, current = {}, final = {}, ignored = {}}
+
+user_tools = {modules = {}, list = {}}
 
 default_file_path = ''
 
@@ -59,18 +61,19 @@ function replaceNames(subtitles, selected_lines, active_line)
       -- file_name = aegisub.dialog.open(title, default_file, default_dir, wildcards,
       --                                 allow_multiple=false, must_exist=true)
       local filenames = aegisub.dialog.open('Select file to read', '', '',
-                                           'Text files (.txt)|*.txt', true, true)
+                                            'Text files (.txt)|*.txt', true, true)
       local needs_conf = {}
       --vars_tbl = {["global"] = {}, ["locals"] = {}}
 	  vars_tbl = {global = {}, locals = {}}
 	  expr_update_log = {}
 	  ignorable_rules = {added = {}, current = {}, final = {}, ignored = {}}
+	  user_tools = {modules = {}, list = {}}
       default_file_path = ''
 
    if(filenames ~= nil)then
-    local nbRplcdWrds = 0
-	local dlg_st_at = 0
-    local rules, rules_keys, rplcd_at_lines = {}, {}, {}
+     local nbRplcdWrds = 0
+	 local dlg_st_at = 0
+     local rules, rules_keys, rplcd_at_lines = {}, {}, {}
 
 	 for file_idx = 1, #filenames do
       local filename = filenames[file_idx]
@@ -143,6 +146,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 		  cfg_res = ""
 		  cntrl_list = {}
 		  local tbl_ignorables_chkbx = {}
+		  local non_applicable_rules = {lines = {}}
 
           local pos_y = 0
 		  local current_row = 0
@@ -150,86 +154,112 @@ function replaceNames(subtitles, selected_lines, active_line)
 		  for key, val in pairs(needs_conf) do
 		    local line = subtitles[key]
 
-		    for v, rule in pairs(val.rules) do
-		       reviewed_repls = reviewed_repls + 1
+		    for v, rule in ipairs(val.rules) do
 
-		       local str, old_str, tags, _ = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
+		       local str, old_str, tags, tmp_nbRplcdWrds = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
 
-				-- tags
-				-- label
-				tmp_tbl = { class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules);  x = 0; y = pos_y; height = 1; width = 1; }
-				table.insert(tmp_conf, tmp_tbl)
+               if(tmp_nbRplcdWrds > 0)then
+			       reviewed_repls = reviewed_repls + 1
 
-				-- edit text
-				tmp_tbl = { name = "line_tags_" .. key .. "_" .. v; class = "edit"; x = 0; y = (pos_y + 1); height = 1; width = (txt_box_width * 5);
-							value = tags; hint = "Tags of the current subtitle line";
-						  }
-				table.insert(tmp_conf, tmp_tbl)
+				   -- tags
+				   -- label
+				   tmp_tbl = {class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules);  x = 0; y = pos_y; height = 1; width = 1; }
+				   table.insert(tmp_conf, tmp_tbl)
 
-				-- labels
-				-- wrgn_word
-				tmp_tbl = { class = "label"; label = "Original: @" ..  display_time(line.start_time);  x = 0; y = (pos_y + 2); height = 1; width = 1}
-				table.insert(tmp_conf, tmp_tbl)
+				   -- edit text
+				   tmp_tbl = {name = "line_tags_" .. key .. "_" .. v; class = "edit"; x = 0; y = (pos_y + 1); height = 1; width = (txt_box_width * 5);
+				   			  value = tags; hint = "Tags of the current subtitle line";
+				   		    }
+				   table.insert(tmp_conf, tmp_tbl)
 
-				-- cr_word
-				tmp_tbl = { class = "label"; label = "Replacement:";  x = txt_box_width; y = (pos_y + 2); height = 1; width = 1; }
-				table.insert(tmp_conf, tmp_tbl)
+				   -- labels
+				   -- wrgn_word
+				   tmp_tbl = {class = "label"; label = "Original: @" ..  display_time(line.start_time);  x = 0; y = (pos_y + 2); height = 1; width = 1}
+				   table.insert(tmp_conf, tmp_tbl)
 
-				-- textboxes
-				-- wrgn_word
-				tmp_tbl = { name = "wrgn_word_" .. key .. "_" .. v; class = "textbox"; x = 0; y = (pos_y + 3); height = txt_box_hight; width = txt_box_width;
-							 value = old_str; hint = rule.hint ;
-						  }
-				table.insert(tmp_conf, tmp_tbl)
+				   -- cr_word
+				   tmp_tbl = {class = "label"; label = "Replacement:";  x = txt_box_width; y = (pos_y + 2); height = 1; width = 1; }
+				   table.insert(tmp_conf, tmp_tbl)
 
-				-- cr_word
-				tmp_tbl = {name = "cr_word_" .. key .. "_" .. v; class = "textbox"; x = txt_box_width; y = (pos_y + 3); height = txt_box_hight; width = (txt_box_width  * 4);
-						   value = str; hint = rule.hint;
-						  }
+				   -- textboxes
+				   -- wrgn_word
+				   tmp_tbl = {name = "wrgn_word_" .. key .. "_" .. v; class = "textbox"; x = 0; y = (pos_y + 3); height = txt_box_hight; width = txt_box_width;
+ 			   			      value = old_str; hint = rule.hint;
+				   		     }
+				   table.insert(tmp_conf, tmp_tbl)
 
-				table.insert(tmp_conf, tmp_tbl)
-
-
-				local confirm_chkbx_label = "Replace"
-
-				if(ignorable_rules.added[rule.wrng_names] ~= nil)then
-				   ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
-				   confirm_chkbx_label = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
-				end
-
-				-- confirm replace checkbox
-				tmp_tbl = { name = "confirm_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = confirm_chkbx_label;  x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = 1; value = true}
-				table.insert(tmp_conf, tmp_tbl)
+				   -- cr_word
+				   tmp_tbl = {name = "cr_word_" .. key .. "_" .. v; class = "textbox"; x = txt_box_width; y = (pos_y + 3); height = txt_box_hight; width = (txt_box_width  * 4);
+				   		      value = str; hint = rule.hint;
+				   		     }				  
+				   table.insert(tmp_conf, tmp_tbl)
 
 
-				-- ignore and never ask about this rule checkbox, display this option only once in the current confirm window
-				if(ignorable_rules.current[rule.wrng_names] == nil and ignorable_rules.final[rule.wrng_names] ~= nil)then
-				   ignorable_rules.current[rule.wrng_names] = true
+				   local confirm_chkbx_label = "Replace"
 
-				   local tmp_chckbx = {name = "ignore_rule_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = "Ignore and never ask about this rule";  x = 0; y = (pos_y + 4 + txt_box_hight); height = 1; width = 1; value = false}
+				   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
 
-				   table.insert(tbl_ignorables_chkbx, {rule_name = rule.wrng_names, checkbox = tmp_chckbx})
-				end
+				      if(ignorable_rules.added[rule.wrng_names].total_lines > 1)then
+				         ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
+				         confirm_chkbx_label = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
+					  elseif(ignorable_rules.final[rule.wrng_names])then ignorable_rules.final[rule.wrng_names] = nil end
+
+				   end
+
+				   -- confirm replace checkbox
+				   tmp_tbl = {name = "confirm_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = confirm_chkbx_label;  x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = 1; value = true}
+				   table.insert(tmp_conf, tmp_tbl)
 
 
-                table.insert(cntrl_list, key .. "_" .. v)
+				   -- ignore and never ask about this rule checkbox, display this option only once in the current confirm window
+				   if(ignorable_rules.current[rule.wrng_names] == nil and ignorable_rules.final[rule.wrng_names] ~= nil)then
+				      ignorable_rules.current[rule.wrng_names] = true
 
-			    pos_y = (pos_y + 6 + txt_box_hight)
-			    current_row = current_row + 1
+				      local tmp_chckbx = {name = "ignore_rule_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = "Ignore and never ask about this rule";  x = 0; y = (pos_y + 4 + txt_box_hight); height = 1; width = 1; value = false}
 
-			    break -- to use only 1 "rule" for each reviewed "line"
+				      table.insert(tbl_ignorables_chkbx, {rule_name = rule.wrng_names, checkbox = tmp_chckbx})
+				   end
+
+
+                   table.insert(cntrl_list, key .. "_" .. v)
+
+			       pos_y = (pos_y + 6 + txt_box_hight)
+			       current_row = current_row + 1
+
+			       break -- to use only 1 "rule" for each reviewed "line"
+
+			   else 
+			       if(non_applicable_rules.lines[key] == nil)then non_applicable_rules.lines[key] = {v}
+			       else table.insert(non_applicable_rules.lines[key], v) end
+
+			       total_repls_to_review = total_repls_to_review - 1
+
+				   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
+				      ignorable_rules.added[rule.wrng_names].total_lines = ignorable_rules.added[rule.wrng_names].total_lines - 1
+				   end
+
+			   end -- end of: if(tmp_nbRplcdWrds > 0)	
 			end --end of: for v, rule in pairs(val.rules) do
+
 
 			if(current_row >= nb_rows) then break end
 
 		  end -- end of : for key, val in pairs(needs_conf) do
 
 
-          for _, chkbx_data in pairs(tbl_ignorables_chkbx)do
-		     if(ignorable_rules.added[chkbx_data.rule_name] ~= nil and ignorable_rules.added[chkbx_data.rule_name].nb_reviewed_lines < ignorable_rules.added[chkbx_data.rule_name].total_lines)then
-			    table.insert(tmp_conf, chkbx_data.checkbox)
-			 end
-		  end
+            for _, chkbx_data in pairs(tbl_ignorables_chkbx)do
+		       if(ignorable_rules.added[chkbx_data.rule_name] ~= nil and ignorable_rules.added[chkbx_data.rule_name].nb_reviewed_lines < ignorable_rules.added[chkbx_data.rule_name].total_lines)then
+			      table.insert(tmp_conf, chkbx_data.checkbox)
+			   end
+		    end
+
+
+			-- remove all non-applicable rules
+			for aLineIdx, lineRules in pairs(non_applicable_rules.lines)do
+			   for aKey = #lineRules, 1, -1 do
+			      table.remove(needs_conf[aLineIdx].rules, aKey)
+			   end
+			end
 
 
 			-- total_repls_to_review
@@ -239,7 +269,6 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 			-- if no extra replacement is available to be confirmed -> exit
 			if(#cntrl_list == 0)then break end
-
 
 
 			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Close"} )
@@ -263,7 +292,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 						 local line = subtitles[sub_idx]
 
 						 -- log stats -> must be done before the next step
-						 _, _, _, tmp_nbRplcdWrds = replaceText(sub_idx, ((sub_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
+						 local _, _, _, tmp_nbRplcdWrds = replaceText(sub_idx, ((sub_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
 
 						 nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
 
@@ -320,6 +349,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
     end -- end of: if(#rules > 0)then
 --print_vars(vars_tbl) -- tbr
+
     -- print Undefined Local/Global vars
     -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expression_update_id} }}, locals = {'fname' = {} }}}
 	 local nb_global_local = 0
@@ -389,7 +419,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
     -- print errors
 	if(#invalid_commands > 0)then
-	 aegisub.debug.out('\n-----------------------[%s invalid command(s) found]-----------------------\n', #invalid_commands)
+	 aegisub.debug.out('\n-----------------------[%s Error/Invalid Command(s) found]-----------------------\n', #invalid_commands)
 
      for _, an_error in ipairs(invalid_commands)do
 	  aegisub.debug.out(an_error .. "\n")
@@ -423,42 +453,31 @@ local dir, fname = filename:match('(.-)([^\\/]-%.?[^%.\\/]*)$')
 end
 
 function load_file(default_file_path, fname)
-
-    local t, set_dir, script_dir = {}, false, lfs.currentdir()
-
+    local t, script_dir = {}, lfs.currentdir()
     local dir, filename = get_file_path(fname)
 
 	local file_path = dir .. filename
-
-	-- check if it's a relative path
-	if(dir == '' or dir.sub(1,1) == '.')then
-      set_dir = true
-
-	elseif(dir.sub(1,1) == '/' or dir.sub(1,1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
-	 if(package.config:sub(1,1) == '\\')then  -- OS is Windows
-	   set_dir = true
-	 end
-	end
+    local set_dir = is_relative_path(dir)
 
 	if(set_dir)then
-	 local path = get_file_path(default_file_path)
-     lfs.chdir(path)
+	   local path = get_file_path(default_file_path)
+       lfs.chdir(path)
 	end
 
 	local file = io.open(file_path, "rb")
 
     if(file == nil)then aegisub.debug.out('Error! External file: "%s" doesn\'t exist -> ignoring this file.\n', file_path)
 	else -- file exists
-	    aegisub.debug.out("Loading the external file: %s\n", file_path)
+	      aegisub.debug.out("Loading the external file: %s\n", file_path)
 
-	    local file_lines = file:read("*a")
-	    file:close()
+	      local file_lines = file:read("*a")
+	      file:close()
 
-	    t = split(trim(file_lines), '\n')
-	    t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
+	      t = split(trim(file_lines), '\n')
+	      t = removeAllComments(t) -- t will be transformed from t(str, ..) to t( (str, line_number), ..)
 	   end
 
-  if(set_dir)then lfs.chdir(script_dir)end
+    if(set_dir)then lfs.chdir(script_dir)end
 
  return t
 end
@@ -519,14 +538,16 @@ end
 
 
 function get_command_type(str)
-  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check'}
+  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check', 'func', 'require'}
   local cmds = { {pattern = '^\\%load\\s+(.+)', cmd_type = arr_cmd_types[1]},
+                 {pattern = '^\\%require\\s+(.+)', cmd_type = arr_cmd_types[9]},
                  {pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[2]},
                  {pattern = '^\\%\\$([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[3]},
                  {pattern = '^\\%1\\s+?(.+)', cmd_type = arr_cmd_types[4]},
                  {pattern = '^\\%2\\s+?(.+)', cmd_type = arr_cmd_types[5]},
                  {pattern = '^\\%hint\\s+?(.+)', cmd_type = arr_cmd_types[6]},
                  {pattern = '^\\%check\\s+m\\s*=\\s*([^;]+?)(?:(?:;\\s*pp\\s*=\\s*((?:\\[[^]]+?\\]\\s*?\\[[^]]*?\\];?\\s*?)+)$)|;?$)', cmd_type = arr_cmd_types[7]},
+                 {pattern = '^\\%func\\s+([a-zA-Z][a-zA-Z\\_0-9]*)(?:\\(([^)]*)\\))?;\\s*(.+)$', cmd_type = arr_cmd_types[8]},
 				 {pattern = '^\\%ask$', cmd_type = 'confirm'}
                }
 
@@ -585,13 +606,163 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 				new_rule = {valid = false, hint = '', has_confirm = false}
 				rule_class = {name = ''}
 
+        elseif(cmd.cmd_type == 'require')then
+		        local script_file = trim(cmd.matches[2].str)
+
+				if(package.config:sub(1, 1) == '\\')then  -- OS is Windows
+			       script_file = re.sub(script_file, '\\/', '\\')
+				end
+
+				local full_module_name = script_file
+
+		        local matches = re.match(script_file, '^([^.]+)(\\.lua)?$')
+
+				if(matches and matches[3])then full_module_name = trim(matches[2].str)
+				else script_file = script_file .. '.lua' end
+
+		        local current_loaded_file_path = get_file_path(filename)
+		        local current_script_path, module_name = get_file_path(script_file)
+				local is_reltv_path = is_relative_path(current_script_path)			
+
+		        package.path = package.path .. ';' .. current_loaded_file_path .. '?.lua'
+
+				if(not is_reltv_path)then
+ 				   package.path = package.path .. ';' .. current_script_path .. '?.lua'
+				   full_module_name = re.sub(module_name, '\\.lua$', '')
+				end
+
+				local status, tmp_module = pcall(require, full_module_name)
+                tmp_module = status and tmp_module or nil
+
+                if(tmp_module ~= nil)then
+				   script_file = package.searchpath(full_module_name, package.path)
+				   script_file = trim(script_file)
+
+				   aegisub.debug.out('Loaded Script "%s"\n', script_file)
+
+                   for name, data in pairs(tmp_module)do
+				      if(data['func'] and type(data['func']) == 'function')then					    
+
+						 if(data['args_type'] and type(data['args_type']) == 'table')then
+
+						    if(is_array(data['args_type']))then
+					           local optional_args_nb = 0
+
+						       if(data.optional)then optional_args_nb = tonumber(data.optional) end
+
+						       if(optional_args_nb ~= nil and optional_args_nb >= 0)then
+
+						           if(optional_args_nb <= #data['args_type'])then
+									  if(user_tools.list[name] == nil)then
+										 user_tools.list[name] = {file_name = script_file}
+										 init_fields(user_tools.modules, data, {script_file, name})
+
+									  elseif(user_tools.list[name].file_name:lower() ~= script_file:lower())then
+										 table.insert(invalid_commands, string.format('Error! Function "%s" defined in module: "%s" already exists in the module: "%s"!\n', name, script_file, user_tools.list[name].file_name))	
+									  end
+
+                                   else local tmp_error = string.format('Error! Function "%s" has invalid "optional" property of value %d, which exceeds the number of its arguments defined in "args_type" property as "%d argument(s)".\n', name, data.optional, #data['args_type'])
+						        	    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						          	    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n') 
+						          	    table.insert(invalid_commands, tmp_error)
+								   end
+
+                               else local tmp_error = string.format('Error! Function "%s" has invalid "optional" property, expected "a positive Integer" got value "%s".\n', name, tostring(data.optional))
+						        	tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						          	tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n') 
+						          	table.insert(invalid_commands, tmp_error)   
+					           end
+
+							else
+						       local tmp_error = string.format('Error! Function "%s" invalid "args_type" property, an array is expected".\n', name)
+						       tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file) 
+						       tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						       table.insert(invalid_commands, tmp_error) 						    
+							end
+
+						 elseif(data['args_type'])then
+						    local tmp_error = string.format('Error! Function "%s" has invalid "args_type" property, expected "an array" got "%s".\n', name, tostring(data.args_type))
+						    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file)
+						    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						    table.insert(invalid_commands, tmp_error)
+                         else
+						    local tmp_error = string.format('Error! Function "%s" is missing the "args_type" property of type "array".\n', name)
+						    tmp_error = tmp_error .. string.format('in Script "%s".\n', script_file) 
+						    tmp_error = tmp_error .. string.format('This function is ignored and not loaded.\n')
+						    table.insert(invalid_commands, tmp_error) 						 
+                         end
+
+					  end
+				   end
+				else
+  				       table.insert(invalid_commands, string.format('Error! Script "%s" not found!\nDefined in file: "%s" @line: %d\n', script_file, filename, t[i].line))
+				    end
+
+        elseif(cmd.cmd_type == 'func')then
+
+                if(user_tools.list[trim(cmd.matches[2].str)] ~= nil)then
+		           new_rule = {valid = false, hint = '', has_confirm = false}
+			       rule_class = {name = ''}
+
+			       wrng_names = applyVars(trim(cmd.matches[4].str), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+                   cr_name = wrng_names
+
+                   rule_class.name = 'func'
+			       new_rule.hint = wrng_names
+
+			       local tmp_func = {name = trim(cmd.matches[2].str), args = {}}				
+			       tmp_func.args = get_func_args(trim(cmd.matches[3].str))
+
+			       if(tmp_func.args['error'] == nil)then                         				   
+			           -- applyVars on tmp_func.args
+					   local no_error = true
+
+                       for _, param in pairs(tmp_func.args)do
+
+					      while(trim(param.param_type:lower()) == 'var' and has_var(trim(param.val)) and no_error)do
+						     local tmp_var_str = param.val
+
+							 param.val = applyVars(trim(param.val), vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+							 no_error = (trim(param.val:lower()) ~= trim(tmp_var_str:lower()))
+						  end
+
+					   end
+
+					   if(no_error)then
+                           local current_module = user_tools.modules[user_tools.list[tmp_func.name].file_name][tmp_func.name]
+                           local valid_args, args_error = valid_params(current_module.args_type, tmp_func.args, current_module.optional, nil)
+
+					       if(valid_args)then
+			                   rule_class['func'] = tmp_func
+			                   new_rule.valid = true
+                           else local tmp_error = string.format('Error! Paramaters type mismatch in function "%s".\n', tmp_func.name)
+						        tmp_error = tmp_error .. string.format('in file: "%s" @line: %d.\n', filename, t[i].line)
+						        tmp_error = tmp_error .. string.format('This function command is ignored and not loaded.\n')
+						        tmp_error = tmp_error .. args_error
+						        table.insert(invalid_commands, tmp_error)							
+						   end
+
+					   else local tmp_error = string.format('Error! Function "%s" has an undefined "constant" as a paramater.\n', tmp_func.name)
+						    tmp_error = tmp_error .. string.format('in file: "%s" @line: %d.\n', filename, t[i].line)
+						    tmp_error = tmp_error .. string.format('This function command is ignored and not loaded.\n')
+						    tmp_error = tmp_error .. string.format('Veiw the [Undefined Global/Local constant(s)] section for more informations about this "constant".\n')
+						    table.insert(invalid_commands, tmp_error)
+					   end
+
+			       else
+                       table.insert(invalid_commands, string.format('Error! %s in: %s\nin file: "%s" @line: %d\n', tmp_func.args.error, tmp_func.args.val, filename, t[i].line))
+			        end
+
+                else   table.insert(invalid_commands, string.format('Error! Undefined Function "%s" in file: "%s" @line: %d\n', trim(cmd.matches[2].str), filename, t[i].line))
+                    end
+
         elseif(cmd.cmd_type == 'global_var' or cmd.cmd_type == 'local_var')then
 		        local old_i = i
 
 				new_rule = {valid = false, hint = '', has_confirm = false}
 		        vars_tbl, i = loadVars(vars_tbl, t, i, {log_vars = vars_log.log_type, fname = filename, append_to_vars = true})
 
-				-- "loadVars" will load all the successive "vars" starting from line[old_i] and "i" value will be set if it's loaded some vars
+				-- "loadVars" will load all the successive "vars" starting from line[old_i] and "i" value will be set if it has loaded some vars
 				-- so no need to increment the value of "i" later
 				can_incrmnt = (old_i == i) -- no var were loaded and we can increment the value of "i"
 
@@ -621,23 +792,23 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 				rule_class = {name = ''}
 
 
-				    if(cmd.matches[3] ~= nil)then -- this won't happen, but I added it now for the future
+				    if(cmd.matches[3] ~= nil)then
 					    rule_class['pp'] = {}
 
 					    local tmp_pp_str = trim(cmd.matches[3].str)
 
 						repeat
-						   local tmp_pattern = '.*?\\[([^]]+?)\\]\\s*?\\[([^]]*?)\\](.*)$'
-						   local tmp_str_matches = re.match(tmp_pp_str, tmp_pattern)
+						    local tmp_pattern = '.*?\\[([^]]+?)\\]\\s*?\\[([^]]*?)\\](.*)$'
+						    local tmp_str_matches = re.match(tmp_pp_str, tmp_pattern)
 
-						   if(tmp_str_matches ~= nil)then
-							  local tmp_pp = {str_match = applyVars(tmp_str_matches[2].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str}),
-							                  str_replace = applyVars(tmp_str_matches[3].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
-							                 }
+						    if(tmp_str_matches ~= nil)then
+							   local tmp_pp = {str_match = applyVars(tmp_str_matches[2].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str}),
+							                   str_replace = applyVars(tmp_str_matches[3].str, vars_tbl, {fname = filename, line = t[i].line, full_str = t[i].str})
+							                  }
 
-                              table.insert(rule_class.pp, tmp_pp)
-							  tmp_pp_str = tmp_str_matches[4].str
-						   end
+                               table.insert(rule_class.pp, tmp_pp)
+							   tmp_pp_str = tmp_str_matches[4].str
+						    end
 
 						until(tmp_str_matches == nil)
 					end
@@ -685,6 +856,8 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 
 					   if(trim(rule_class.name:lower()) == 'check' and rule_class.pp ~= nil)then
 						  tmp_new_rule['check'] = rule_class.pp
+					   elseif(trim(rule_class.name:lower()) == 'func' and rule_class.func ~= nil)then	  
+					      tmp_new_rule['func'] = rule_class.func
 					   end
 
 					   table.insert(rules, tmp_new_rule)
@@ -816,27 +989,118 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 			end
 
          elseif(rules[j].class == 'check')then	-- to manual edit in confirm pop-up
-            if(check_confirm)then
-				local tmp_checked_str = str
+			local tmp_checked_str = str
 
-				if(rules[j].check ~= nil)then -- has post-processing
-				   for _, pp_expre in ipairs(rules[j].check)do
-				      tmp_checked_str = re.sub(tmp_checked_str, pp_expre.str_match, pp_expre.str_replace)
-				   end
-				end
+			if(rules[j].check ~= nil)then -- has post-processing
+			   for _, pp_expre in ipairs(rules[j].check)do
+			      tmp_checked_str = re.sub(tmp_checked_str, pp_expre.str_match, pp_expre.str_replace)
+			   end
+			end
 
-				if(re.match(tmp_checked_str, rules[j].wrng_names) ~= nil)then
-				   confirmThis(i, rules[j], needs_conf, tags)
-				end
+			if(re.match(tmp_checked_str, rules[j].wrng_names) ~= nil)then
 
-		    else
-			       nbRplcdWrds = nbRplcdWrds + 1
+			   if(check_confirm)then confirmThis(i, rules[j], needs_conf, tags)
+			   else 
+			        nbRplcdWrds = nbRplcdWrds + 1
 
-                   if(log_stats)then
+				    if(log_stats)then
 					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
 					  else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+				    end
+			   end
+
+			end
+
+         elseif(rules[j].class == 'func')then
+			if(re.match(str, rules[j].wrng_names) ~= nil)then -- rule pattern matched
+
+			   if(check_confirm and rules[j].confirm == true)then -- text replace needs confirmation
+				   confirmThis(i, rules[j], needs_conf, tags)
+			   else -- text replace does not need confirmation
+
+				   if(rules[j].func)then
+					  if(user_tools.list[rules[j].func.name])then
+                         local capture = get_capture_vals(str, rules[j].wrng_names)
+                         local valid_args = true
+
+					     while(capture ~= nil and valid_args)do
+						    local func_params = {}
+						    local error_exists = false
+
+						    -- eval func
+						    if(not error_exists)then
+						       local current_func = {name = rules[j].func.name,
+						  	                         data = user_tools.modules[user_tools.list[rules[j].func.name].file_name][rules[j].func.name]
+						  						    }
+
+						  	   -- tba check validaty of func_eval data
+							   local rule_func_args = util.deep_copy(rules[j].func.args)
+
+                               local args_error
+							   valid_args, args_error = valid_params(current_func.data.args_type, rule_func_args, current_func.data.optional, capture)
+
+						  	   if(valid_args)then
+							      -- fill function params from capture values if needed
+						          for _, param in ipairs(rule_func_args)do
+									 table.insert(func_params, param.val)
+						          end
+
+                                  local success, func_eval = pcall(current_func.data.func, func_params)
+
+						  	      if(success)then
+
+								      if(func_eval.error)then
+									     valid_args = false
+
+										 local tmp_error = string.format('Error! in function "%s".\n', current_func.name)
+						                 tmp_error = tmp_error .. string.format('%s.\n', tostring(func_eval.error))
+
+										 table.insert(invalid_commands, tmp_error)
+
+								      elseif(func_eval.result and type(func_eval.result):lower() == "string")then
+						  	             str = re.sub(str, rules[j].wrng_names, func_eval.result, 1)
+						  	             nbRplcdWrds = nbRplcdWrds + 1
+
+						  	             if(log_stats)then
+						  	                if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
+						  	                else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+						  	             end
+
+									  else valid_args = false
+										   local tmp_error = string.format('Error! in function "%s".\n', current_func.name)
+						                   tmp_error = tmp_error .. 'This function is expected to return a field "Result" of type "String".\n'
+
+										   table.insert(invalid_commands, tmp_error) 
+									  end
+
+						  	      else valid_args = false
+								       local tmp_error = string.format('Error! in function "%s".\n', current_func.name)
+									   tmp_error = tmp_error .. func_eval
+
+								       table.insert(invalid_commands, tmp_error)
+								  end
+
+						  	   else local tmp_error = string.format('Error! Paramaters types mismatch in function "%s".\n', current_func.name)
+						            tmp_error = tmp_error .. string.format('Expected paramaters types are: %s.\n', dump_array(current_func.data.args_type, {print_key = false}))
+
+									if(current_func.data.optional)then
+									   tmp_error = tmp_error .. string.format('Optional paramater(s) start(s) from paramater number "%s".\n', tostring(current_func.data.optional))
+									end
+
+						            tmp_error = tmp_error .. args_error
+						            table.insert(invalid_commands, tmp_error)
+						  	   end
+
+						    end
+
+					        capture = get_capture_vals(str, rules[j].wrng_names)
+				         end
+					  end
 				   end
-				end
+
+			   end
+
+			end
 
 		 else -- "normal" replacement
 			 pos, _ = string.find(trim(rules[j].wrng_names), '%/') -- check if split is by "/" -> we're replacing multiple words
@@ -1312,5 +1576,172 @@ function spairs(t, order)
         end
     end
 end
+
+
+function is_relative_path(dir)
+	if(dir == '' or dir.sub(1, 1) == '.')then return true
+	elseif(dir.sub(1, 1) == '/' or dir.sub(1, 1) == '\\' or dir:match('^([a-zA-Z]%:\\)') == nil)then
+		if(package.config:sub(1, 1) == '\\')then  -- OS is Windows
+		   return true
+		end	
+	end
+
+  return false 	
+end
+
+
+function get_func_args(str)
+    local pattern = "^([\\\\\\$]?\\d+|\\%(?:_?[a-zA-Z][a-zA-Z_0-9]*\\%)|(?:true|false)|['].*?['])(?:\\s*?,|$)"
+
+	local tmp_args = {}
+	local tmp_str
+
+    local matches = re.match(trim(str), pattern)
+
+	while(matches ~= nil and tmp_str ~= str)do
+	   local capture = matches[2].str
+
+	   local param = get_param_type(capture)
+
+	   if(param.param_type)then
+	      if(trim(param.param_type:lower()) == 'string')then table.insert(tmp_args, {param_type = 'string', val = capture})
+	      elseif(trim(param.param_type:lower()) == 'capture')then table.insert(tmp_args, {param_type = trim(param.param_type:lower()), val = tonumber(trim(param.matches[2].str))})
+	      else table.insert(tmp_args, {param_type = trim(param.param_type:lower()), val = param.matches[2].str}) end
+
+	      tmp_str = trim(str)
+	      str = trim(str:gsub(matches[1].str:gsub("%p", "%%%1"), '', 1))
+	      matches = re.match(str, pattern)
+	   else return {error = 'Invalid function parameter', val = str} end
+
+	end
+
+
+   if(trim(str) ~= '')then return {error = 'Invalid function parameter', val = str}end
+   return tmp_args
+end
+
+
+
+
+function get_param_type(str)
+	local arr_param_types = {'capture', 'number', 'var', 'boolean', 'string'}
+	local params = { 
+	                {pattern = '^[\\\\\\$](\\d+)$', param_type = arr_param_types[1]},
+				    {pattern = '^(\\d+)$', param_type = arr_param_types[2]},
+					{pattern = '^(\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)$', param_type = arr_param_types[3]},
+					{pattern = '^(true|false)$', param_type = arr_param_types[4]},
+					{pattern = '^[\'](.*?)[\']$', param_type = arr_param_types[5]}
+				   }
+
+	local arg = {param_type = nil, matches = nil}
+
+    for _, param in ipairs(params)do
+
+       local matches = re.match(trim(str), param.pattern)
+
+       if(matches ~= nil)then
+    	  arg.param_type = trim(param.param_type:lower())
+
+    	  if(value_exists(arr_param_types, param.param_type))then arg.matches = matches
+    	  else arg.matches = nil end
+
+    	  break
+       end
+
+    end
+
+ return arg
+end
+
+
+
+function get_capture_vals(str, pattern)
+	local capture = {}    
+
+    local matches  = re.match(str, pattern)
+
+	if(matches ~= nil)then
+	   local i = 2
+
+	   while(matches[i] ~= nil)do
+	      table.insert(capture, matches[i].str)
+	      i = i + 1
+	   end
+	end
+
+   return #capture > 0 and capture or nil
+end
+
+
+function is_array(t)
+
+  if(type(t) ~= 'table')then return false end
+
+  local i = 0
+
+  for _ in pairs(t) do
+     i = i + 1
+     if(t[i] == nil)then return false end
+  end
+
+  return true
+end
+
+
+function valid_params(args_types, params, optional, captures)
+
+   for i, param_types in ipairs(args_types)do
+      if(params[i] == nil and i < optional)then return false, string.format("Missing obligatory function paramater %d.\n", i)
+	  elseif(params[i] ~= nil)then
+
+	       if(captures ~= nil and trim(params[i].param_type:lower()) == 'capture')then
+
+				if(captures[params[i].val] ~= nil)then
+				    params[i].param_type = 'string'
+				    params[i].val = captures[params[i].val]
+
+		           if(#param_types == 1 and trim(param_types[1]:lower()) == 'number')then
+				      if(tonumber(params[i].val) ~= nil)then 
+				    	  params[i].param_type = 'number'
+				    	  params[i].val = tonumber(params[i].val)
+				      else return false, string.format('Function Paramater %d: Expected "Number" got "%s" of value  {%s}.\n', i, type(params[i].val), tostring(params[i].val)) end
+			       end
+				else return false, string.format('Offset index "%d" of regex capture group array.\n', params[i].val) end
+		   elseif(captures == nil and trim(params[i].param_type:lower()) ~= 'capture' and not value_exists(param_types, params[i].param_type))then
+		      return false, string.format('Function Paramater %d: Expected %s got "%s" of value {%s}.\n', i, dump_array(param_types, {print_key = false}), params[i].param_type, tostring(params[i].val))
+		   end
+      elseif(params[i] == nil and i >= optional)then return true, '' end
+   end
+
+  return true, ''
+end
+
+
+function dump_array(arr, options)
+
+   if(is_array(arr))then
+   	  local defaults = {print_key = true, indent = ' '}
+	  local options = options or defaults
+
+	  options = set_defaults(options, defaults)
+
+      local s = options.indent .. '{' .. options.indent
+      for k, v in ipairs(arr) do
+	     if(options.print_key)then s = s .. string.format('[%s] = ', tostring(k))end
+
+         if(type(v) == 'table')then s = s .. string.format('%s,%s', dump_array(v, options), options.indent)
+         elseif(type(v) ~= 'string')then s = s .. string.format('%s,%s', tostring(v), options.indent)
+		 else s = s .. string.format('"%s",%s', tostring(v), options.indent)	
+		 end
+
+      end
+      s = string.gsub(s .. '} ', '%,%s*}', ' }')
+      return  s
+
+   elseif(type(arr) == 'table')then return type(arr)
+   elseif(type(arr) ~= 'string')then return tostring(arr)
+   else return '"' .. arr .. '"' end
+end
+
 
 aegisub.register_macro(script_name, script_description, appContext)
