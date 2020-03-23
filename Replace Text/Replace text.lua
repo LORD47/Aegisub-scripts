@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.3"
+script_version = "3.4"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -132,6 +132,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 	   local nb_rows = 3
 	   local cntrl_list
 	   local reviewed_repls = 0
+	   local arr_replace_all = {rules = {}}
 
 	   repeat
 	      -- filter ignorable_rules.added
@@ -144,12 +145,15 @@ function replaceNames(subtitles, selected_lines, active_line)
 		  tmp_conf = {}
 		  tmp_tbl = {}
 		  cfg_res = ""
-		  cntrl_list = {}
-		  local tbl_ignorables_chkbx = {}
+		  cntrl_list = {items = {}, lines = {}}
+		  local tbl_multi_ocrncs = {}
+		  local tbl_action_dropdown = {}
 		  local non_applicable_rules = {lines = {}}
+
 
           local pos_y = 0
 		  local current_row = 0
+		  local items = {}
 
 		  for key, val in pairs(needs_conf) do
 		    local line = subtitles[key]
@@ -159,6 +163,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 		       local str, old_str, tags, tmp_nbRplcdWrds = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
 
                if(tmp_nbRplcdWrds > 0)then
+			       items = {}
 			       reviewed_repls = reviewed_repls + 1
 
 				   -- tags
@@ -195,40 +200,40 @@ function replaceNames(subtitles, selected_lines, active_line)
 				   table.insert(tmp_conf, tmp_tbl)
 
 
-				   local confirm_chkbx_label = "Replace"
+				   local dropdown_item = "Replace"
 
 				   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
 
 				      if(ignorable_rules.added[rule.wrng_names].total_lines > 1)then
 				         ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
-				         confirm_chkbx_label = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
+				         dropdown_item = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
 					  elseif(ignorable_rules.final[rule.wrng_names])then ignorable_rules.final[rule.wrng_names] = nil end
 
 				   end
 
-				   -- confirm replace checkbox
-				   tmp_tbl = {name = "confirm_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = confirm_chkbx_label;  x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = 1; value = true}
-				   table.insert(tmp_conf, tmp_tbl)
+                   table.insert(items, dropdown_item)
+				   table.insert(items, "Ignore")
 
+                   -- action dropdown
+				   local tmp_action_dropdown = {name = "action_dropdown_" .. key .. "_" .. v; class = "dropdown"; x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = txt_box_width; value = items[1]; items = items}
+                   table.insert(tmp_conf, tmp_action_dropdown)
 
-				   -- ignore and never ask about this rule checkbox, display this option only once in the current confirm window
+				   -- ignore and never ask about this rule dropdown menu, display this option only once in the current confirm window
 				   if(ignorable_rules.current[rule.wrng_names] == nil and ignorable_rules.final[rule.wrng_names] ~= nil)then
 				      ignorable_rules.current[rule.wrng_names] = true
 
-				      local tmp_chckbx = {name = "ignore_rule_chkbx_" .. key .. "_" .. v; class = "checkbox"; label = "Ignore and never ask about this rule";  x = 0; y = (pos_y + 4 + txt_box_hight); height = 1; width = 1; value = false}
-
-				      table.insert(tbl_ignorables_chkbx, {rule_name = rule.wrng_names, checkbox = tmp_chckbx})
+				      table.insert(tbl_multi_ocrncs, {rule_name = rule.wrng_names, dropdown = tmp_action_dropdown})
 				   end
 
+                   table.insert(cntrl_list.items, key .. "_" .. v)
+				   init_fields(cntrl_list.lines, v, {key, rule.wrng_names})
 
-                   table.insert(cntrl_list, key .. "_" .. v)
-
-			       pos_y = (pos_y + 6 + txt_box_hight)
+			       pos_y = (pos_y + 5 + txt_box_hight)
 			       current_row = current_row + 1
 
 			       break -- to use only 1 "rule" for each reviewed "line"
 
-			   else 
+			   else
 			       if(non_applicable_rules.lines[key] == nil)then non_applicable_rules.lines[key] = {v}
 			       else table.insert(non_applicable_rules.lines[key], v) end
 
@@ -247,9 +252,10 @@ function replaceNames(subtitles, selected_lines, active_line)
 		  end -- end of : for key, val in pairs(needs_conf) do
 
 
-            for _, chkbx_data in pairs(tbl_ignorables_chkbx)do
-		       if(ignorable_rules.added[chkbx_data.rule_name] ~= nil and ignorable_rules.added[chkbx_data.rule_name].nb_reviewed_lines < ignorable_rules.added[chkbx_data.rule_name].total_lines)then
-			      table.insert(tmp_conf, chkbx_data.checkbox)
+            for _, tmp_data in pairs(tbl_multi_ocrncs)do
+		       if(ignorable_rules.added[tmp_data.rule_name] ~= nil and ignorable_rules.added[tmp_data.rule_name].nb_reviewed_lines < ignorable_rules.added[tmp_data.rule_name].total_lines)then			  
+				  table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
+				  table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
 			   end
 		    end
 
@@ -268,79 +274,103 @@ function replaceNames(subtitles, selected_lines, active_line)
 			table.insert(tmp_conf, tmp_tbl)
 
 			-- if no extra replacement is available to be confirmed -> exit
-			if(#cntrl_list == 0)then break end
+			if(#cntrl_list.items == 0)then break end
 
 
 			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Close"} )
 
-			if(tostring(cfg_res) ~= "false" and (string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip"))then
+			if(tostring(cfg_res) ~= "false" and (string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip"))then			    
+                local sel_action
 
-				for cntrl_item_key, cntrl_item_val in pairs(cntrl_list)do
+				for cntrl_item_key, cntrl_item_val in ipairs(cntrl_list.items)do
 				   local sub_idx , rule_idx = cntrl_item_val:match("(%d+)%_(%d+)")
 				   sub_idx, rule_idx = tonumber(sub_idx), tonumber(rule_idx)
 
 				   local current_rule = needs_conf[sub_idx].rules[rule_idx].wrng_names
 
-                   if(config["ignore_rule_chkbx_" .. cntrl_item_val] ~= nil and config["ignore_rule_chkbx_" .. cntrl_item_val])then
+				   sel_action = get_selected_action(trim(config["action_dropdown_" .. cntrl_item_val]))
+
+                   if(trim(sel_action.act_type:lower()) == 'ignore_all')then
 					  ignorable_rules.ignored[current_rule] = true
 				   end
 
 				   if(ignorable_rules.ignored[current_rule] == nil and string.lower(cfg_res) == "replace")then
+				      if(value_exists({'replace', 'replace_all'}, trim(sel_action.act_type:lower())))then
 
-				      if(config["confirm_chkbx_" .. cntrl_item_val])then
-						 -- replace the confirmed text
-						 local line = subtitles[sub_idx]
+					     local apply_on_lines = {[sub_idx] = true}
 
-						 -- log stats -> must be done before the next step
-						 local _, _, _, tmp_nbRplcdWrds = replaceText(sub_idx, ((sub_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
+                         if(trim(sel_action.act_type:lower()) == 'replace_all' and ignorable_rules.added[current_rule] ~= nil and ignorable_rules.final[current_rule] ~= nil)then
+						    apply_on_lines = ignorable_rules.added[current_rule].lines
+						    arr_replace_all.rules[current_rule] = true
+						 end
 
-						 nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
+                         for tmp_idx, _ in pairs(apply_on_lines)do
+						    -- replace the confirmed text
+						    local line = subtitles[tmp_idx]
 
-						 line.text = trim(config["line_tags_" .. cntrl_item_val]) .. trim(config["cr_word_" .. cntrl_item_val])
-						 subtitles[sub_idx] = line
+						    -- log stats -> must be done before the next step
+						    local new_str, _, tmp_tags, tmp_nbRplcdWrds = replaceText(tmp_idx, ((tmp_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
+
+						    nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
+
+							local cntl_rule_id = fields_lookup(cntrl_list.lines, {tmp_idx, current_rule})
+
+							if(cntl_rule_id ~= nil)then
+						        line.text = trim(config["line_tags_" .. tmp_idx .. "_" .. cntl_rule_id]) .. trim(config["cr_word_" .. tmp_idx .. "_" .. cntl_rule_id])
+							else 
+							    line.text = trim(tmp_tags .. new_str)
+							    reviewed_repls = reviewed_repls + 1
+							end    
+
+						    subtitles[tmp_idx] = line
+						 end
+
 				      end
 
 				   end -- end of: if(string.lower(cfg_res) == "replace")then
 
-				   table.remove(needs_conf[sub_idx].rules, rule_idx)
-
 
                    if(ignorable_rules.ignored[current_rule] == nil)then needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
-				   else reviewed_repls = reviewed_repls - 1 end
+				   elseif(arr_replace_all.rules[current_rule] == nil)then reviewed_repls = reviewed_repls - 1 end
+
+                   -- add current_rule to the list of the ignored rules, to delete all its instances in needs_conf,
+				   -- no need to do table.remove(needs_conf[sub_idx].rules, rule_idx) , it will be removed later anyway
+				   if(arr_replace_all.rules[current_rule] ~= nil)then ignorable_rules.ignored[current_rule] = true
+				   else table.remove(needs_conf[sub_idx].rules, rule_idx) end                  
 
 				end
 
+                -- remove all "ignored all"/"replaced all" rules from "needs_conf"
+			    if(next(ignorable_rules.ignored) ~= nil) then
+
+			       for ignored_rule in pairs(ignorable_rules.ignored) do
+
+			    	  -- get all the keys of the needs_conf[] items that contain the current "ignored_rule"
+			    	  for rule_2b_removed_line_id in pairs(ignorable_rules.added[ignored_rule].lines)do
+
+                         if(arr_replace_all.rules[ignored_rule] == nil)then
+			    			total_repls_to_review = total_repls_to_review - 1
+						 end
+
+			    		 for rmv_rule_key = #needs_conf[rule_2b_removed_line_id].rules, 1, -1 do
+
+			    		    if(needs_conf[rule_2b_removed_line_id].rules[rmv_rule_key].wrng_names == ignored_rule)then
+			    		       table.remove(needs_conf[rule_2b_removed_line_id].rules, rmv_rule_key)
+			    			end
+
+			    		 end
+
+			    		 needs_conf[rule_2b_removed_line_id].total_rules = #needs_conf[rule_2b_removed_line_id].rules
+			    	  end
+
+			       end
+
+			    end
+
+			    ignorable_rules.current = {}
+                ignorable_rules.ignored = {}
 			end
 
-
-            if(next(ignorable_rules.ignored) ~= nil) then
-			   -- remove all ignored rules from "needs_conf"
-			   for ignored_rule in pairs(ignorable_rules.ignored) do
-
-				  -- get all the keys of the needs_conf[] items that contain the current "ignored_rule"
-				  for rule_2b_removed_line_id in pairs(ignorable_rules.added[ignored_rule].lines)do
-
-					 for rmv_rule_key = #needs_conf[rule_2b_removed_line_id].rules, 1, -1 do
-
-					    if(needs_conf[rule_2b_removed_line_id].rules[rmv_rule_key].wrng_names == ignored_rule)then
-					       table.remove(needs_conf[rule_2b_removed_line_id].rules, rmv_rule_key)
-						   total_repls_to_review = total_repls_to_review - 1
-						end
-
-					 end
-
-					 needs_conf[rule_2b_removed_line_id].total_rules = #needs_conf[rule_2b_removed_line_id].rules
-				  end
-
-				  -- decrease total_repls_to_review, because the current ignored rule has been already removed
-				  -- in table.remove(needs_conf[sub_idx].rules, rule_idx)
-				  total_repls_to_review = total_repls_to_review - 1
-			   end
-
-			end
-
-			ignorable_rules.current = {}
-            ignorable_rules.ignored = {}
 
 	   until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
 	 end -- end of: if(total_repls_to_review > 0)then
@@ -1741,6 +1771,36 @@ function dump_array(arr, options)
    elseif(type(arr) == 'table')then return type(arr)
    elseif(type(arr) ~= 'string')then return tostring(arr)
    else return '"' .. arr .. '"' end
+end
+
+
+function get_selected_action(str)
+	local arr_act_types = {}
+	local actions = {
+	                 {pattern = '^replace(?:\\s*\\(\\d+\\/\\d+\\))?$', act_type = 'replace'},
+				     {pattern = '^ignore$', act_type = 'ignore'},
+					 {pattern = '^replace\\s+all.*', act_type = 'replace_all'},
+					 {pattern = '^ignore\\s+all.*', act_type = 'ignore_all'},
+				    }
+
+	local sel_action = {act_type = nil, matches = nil}
+
+    for _, action in ipairs(actions)do
+
+       local matches = re.match(trim(str), action.pattern, re.ICASE)
+
+       if(matches ~= nil)then
+    	  sel_action.act_type = trim(action.act_type:lower())
+
+    	  if(value_exists(arr_act_types, action.act_type))then sel_action.matches = matches
+    	  else sel_action.matches = nil end
+
+    	  break
+       end
+
+    end
+
+ return sel_action
 end
 
 
