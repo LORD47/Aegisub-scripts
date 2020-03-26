@@ -1,7 +1,7 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.4"
+script_version = "3.5"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
@@ -23,6 +23,9 @@ ignorable_rules = {added = {}, current = {}, final = {}, ignored = {}}
 user_tools = {modules = {}, list = {}}
 
 default_file_path = ''
+
+dlg_st_at = 0
+detail_max_lines = 10
 
 function appContext(subtitles, selected_lines, active_line)
 
@@ -72,7 +75,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
    if(filenames ~= nil)then
      local nbRplcdWrds = 0
-	 local dlg_st_at = 0
+	 dlg_st_at = 0
      local rules, rules_keys, rplcd_at_lines = {}, {}, {}
 
 	 for file_idx = 1, #filenames do
@@ -96,10 +99,10 @@ function replaceNames(subtitles, selected_lines, active_line)
      if(#rules > 0)then
 	  local idx = 0
 
-	  local dlg_st_at = 0
+	  dlg_st_at = 0
 
 	  for i = 1, #subtitles do
-    	   local line = subtitles[i]
+    	 local line = subtitles[i]
 
     	 if(line.class == "dialogue")then
     		idx = idx + 1
@@ -124,255 +127,462 @@ function replaceNames(subtitles, selected_lines, active_line)
 	  for _, val in pairs(needs_conf) do total_repls_to_review = total_repls_to_review + val.total_rules  end
 
 	  if(total_repls_to_review > 0)then
-       local tmp_conf
-       local tmp_tbl
-       local cfg_res
-       local config = {}
-       local txt_box_hight, txt_box_width = 4, 5
-	   local nb_rows = 3
-	   local cntrl_list
-	   local reviewed_repls = 0
-	   local arr_replace_all = {rules = {}}
+        local tmp_conf
+        local tmp_tbl
+        local cfg_res
+        local config = {}
+        local txt_box_hight, txt_box_width = 4, 5
+	    local nb_rows = 3
+	    local cntrl_list
+	    local reviewed_repls = 0
+	    local arr_replace_all = {rules = {}}
+
+	    local tbl_multi_ocrncs = {}
+	    local tbl_action_dropdown = {}
+	    local non_applicable_rules = {lines = {}}
+
+
+        local pos_y = 0
+	    local current_row = 0
+	    local items = {}
+
+	    local details = {data = {}, ids = {}}
+		local avail_details, one_detail = {}, {}
+	    local from_detail = false
 
 	   repeat
-	      -- filter ignorable_rules.added
-          for ignr_rule_key in pairs(ignorable_rules.added) do
-             if(ignorable_rules.final[ignr_rule_key] == nil)then
-        	    ignorable_rules.added[ignr_rule_key] = nil
-        	 end
-          end
 
-		  tmp_conf = {}
-		  tmp_tbl = {}
-		  cfg_res = ""
-		  cntrl_list = {items = {}, lines = {}}
-		  local tbl_multi_ocrncs = {}
-		  local tbl_action_dropdown = {}
-		  local non_applicable_rules = {lines = {}}
+	        if(not from_detail)then 
+			  details = {data = {}, ids = {}}
 
+	          -- filter ignorable_rules.added
+              for ignr_rule_key in pairs(ignorable_rules.added) do
+                 if(ignorable_rules.final[ignr_rule_key] == nil)then
+            	    ignorable_rules.added[ignr_rule_key] = nil
+            	 end
+              end
 
-          local pos_y = 0
-		  local current_row = 0
-		  local items = {}
-
-		  for key, val in pairs(needs_conf) do
-		    local line = subtitles[key]
-
-		    for v, rule in ipairs(val.rules) do
-
-		       local str, old_str, tags, tmp_nbRplcdWrds = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
-
-               if(tmp_nbRplcdWrds > 0)then
-			       items = {}
-			       reviewed_repls = reviewed_repls + 1
-
-				   -- tags
-				   -- label
-				   tmp_tbl = {class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules);  x = 0; y = pos_y; height = 1; width = 1; }
-				   table.insert(tmp_conf, tmp_tbl)
-
-				   -- edit text
-				   tmp_tbl = {name = "line_tags_" .. key .. "_" .. v; class = "edit"; x = 0; y = (pos_y + 1); height = 1; width = (txt_box_width * 5);
-				   			  value = tags; hint = "Tags of the current subtitle line";
-				   		    }
-				   table.insert(tmp_conf, tmp_tbl)
-
-				   -- labels
-				   -- wrgn_word
-				   tmp_tbl = {class = "label"; label = "Original: @" ..  display_time(line.start_time);  x = 0; y = (pos_y + 2); height = 1; width = 1}
-				   table.insert(tmp_conf, tmp_tbl)
-
-				   -- cr_word
-				   tmp_tbl = {class = "label"; label = "Replacement:";  x = txt_box_width; y = (pos_y + 2); height = 1; width = 1; }
-				   table.insert(tmp_conf, tmp_tbl)
-
-				   -- textboxes
-				   -- wrgn_word
-				   tmp_tbl = {name = "wrgn_word_" .. key .. "_" .. v; class = "textbox"; x = 0; y = (pos_y + 3); height = txt_box_hight; width = txt_box_width;
- 			   			      value = old_str; hint = rule.hint;
-				   		     }
-				   table.insert(tmp_conf, tmp_tbl)
-
-				   -- cr_word
-				   tmp_tbl = {name = "cr_word_" .. key .. "_" .. v; class = "textbox"; x = txt_box_width; y = (pos_y + 3); height = txt_box_hight; width = (txt_box_width  * 4);
-				   		      value = str; hint = rule.hint;
-				   		     }				  
-				   table.insert(tmp_conf, tmp_tbl)
+		      tmp_conf = {}
+		      tmp_tbl = {}
+		      cfg_res = ""
+		      cntrl_list = {items = {}, lines = {}}
+		      tbl_multi_ocrncs = {}
+		      tbl_action_dropdown = {}
+		      non_applicable_rules = {lines = {}}
 
 
-				   local dropdown_item = "Replace"
+              pos_y = 0
+		      current_row = 0
+		      items = {}
 
-				   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
+		      for key, val in pairs(needs_conf) do
+		        local line = subtitles[key]
 
-				      if(ignorable_rules.added[rule.wrng_names].total_lines > 1)then
-				         ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
-				         dropdown_item = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
-					  elseif(ignorable_rules.final[rule.wrng_names])then ignorable_rules.final[rule.wrng_names] = nil end
+		        for v, rule in ipairs(val.rules) do
 
+		           local str, old_str, tags, tmp_nbRplcdWrds = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
+
+                   if(tmp_nbRplcdWrds > 0)then
+		    	       items = {}
+		    		   one_detail = {}
+		    	       reviewed_repls = reviewed_repls + 1
+
+		    		   -- tags
+		    		   -- label
+		    		   tmp_tbl = {class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules),
+					              x = 0; y = pos_y, height = 1; width = 1, control_pos = {default = {y = pos_y}, detail = {y = 0}}
+								 }
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+		    		   -- edit text
+		    		   tmp_tbl = {name = "line_tags_" .. key .. "_" .. v, class = "edit", x = 0, y = (pos_y + 1), height = 1, width = (txt_box_width * 5),
+		    		   			  value = tags; hint = "Tags of the current subtitle line", control_pos = {default = {y = pos_y + 1}, detail = {y = 1}}
+		    		   		     }
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+		    		   -- labels
+		    		   -- wrgn_word
+		    		   tmp_tbl = {class = "label"; label = "Original: @" ..  display_time(line.start_time),  height = 1; width = 1,
+					              x = 0, y = (pos_y + 2), control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
+								 }
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+		    		   -- cr_word
+		    		   tmp_tbl = {class = "label"; label = "Replacement:", x = txt_box_width; y = (pos_y + 2), height = 1; width = 1,
+                                  control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
+								 }
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+		    		   -- textboxes
+		    		   -- wrgn_word
+		    		   tmp_tbl = {name = "wrgn_word_" .. key .. "_" .. v; class = "textbox"; x = 0; y = (pos_y + 3); height = txt_box_hight; width = txt_box_width;
+ 		    	   			      value = old_str; hint = rule.hint, control_pos = {default = {y = pos_y + 3}, detail = {y = 3}}
+		    		   		     }
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+		    		   -- cr_word
+		    		   tmp_tbl = {name = "cr_word_" .. key .. "_" .. v; class = "textbox"; x = txt_box_width; y = (pos_y + 3); height = txt_box_hight; width = (txt_box_width  * 4);
+		    		   		      value = str; hint = rule.hint; control_pos = {default = {y = pos_y + 3}, detail = {y = 3}}
+		    		   		     }				  
+		    		   table.insert(tmp_conf, tmp_tbl)
+		    		   table.insert(one_detail, tmp_tbl)
+
+                       -- pre-line spin edit
+                       if(key > dlg_st_at)then
+					      local min_val = (key - dlg_st_at >= detail_max_lines) and detail_max_lines or key - dlg_st_at
+
+                          tmp_tbl = {name = "pre_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 2); height = 1,  value = 0, min = 0, max = min_val,
+		    		                 hint = 'Number of lines preceeding the current line to show in the "Details" Window'}
+                          table.insert(tmp_conf, tmp_tbl)
+					   end
+
+					   -- post-line spin edit
+					   if(key < #subtitles)then
+					      local max_val = (key + detail_max_lines <= #subtitles) and detail_max_lines or #subtitles - key
+
+		    		      tmp_tbl = {name = "post_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 3 + txt_box_hight); height = 1,  value = 0, min = 0, max = max_val,
+		    		                 hint = 'Number of lines following the current line to show in the "Details" Window'}
+                          table.insert(tmp_conf, tmp_tbl)
+					   end
+
+
+		    		   local dropdown_item = "Replace"
+
+		    		   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
+
+		    		      if(ignorable_rules.added[rule.wrng_names].total_lines > 1)then
+		    		         ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
+		    		         dropdown_item = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
+		    			  elseif(ignorable_rules.final[rule.wrng_names])then ignorable_rules.final[rule.wrng_names] = nil end
+
+		    		   end
+
+                       table.insert(items, dropdown_item)
+		    		   table.insert(items, "Ignore")
+
+                       -- action dropdown
+		    		   local tmp_action_dropdown = {name = "action_dropdown_" .. key .. "_" .. v; class = "dropdown"; x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = txt_box_width; value = items[1]; items = items}
+                       table.insert(tmp_conf, tmp_action_dropdown)
+
+		    		   -- ignore and never ask about this rule dropdown menu, display this option only once in the current confirm window
+		    		   if(ignorable_rules.current[rule.wrng_names] == nil and ignorable_rules.final[rule.wrng_names] ~= nil)then
+		    		      ignorable_rules.current[rule.wrng_names] = true
+
+		    		      table.insert(tbl_multi_ocrncs, {rule_name = rule.wrng_names, dropdown = tmp_action_dropdown})
+		    		   end
+
+                       table.insert(cntrl_list.items, key .. "_" .. v)
+		    		   init_fields(cntrl_list.lines, v, {key, rule.wrng_names})
+
+		    	       pos_y = (pos_y + 5 + txt_box_hight)
+		    	       current_row = current_row + 1
+
+                       table.insert(details.data, one_detail)
+                       table.insert(details.ids, {line = key, rule_id = v})
+
+		    	       break -- to use only 1 "rule" for each reviewed "line"
+
+		    	   else
+		    	       if(non_applicable_rules.lines[key] == nil)then non_applicable_rules.lines[key] = {v}
+		    	       else table.insert(non_applicable_rules.lines[key], v) end
+
+		    	       total_repls_to_review = total_repls_to_review - 1
+
+		    		   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
+		    		      ignorable_rules.added[rule.wrng_names].total_lines = ignorable_rules.added[rule.wrng_names].total_lines - 1
+		    		   end
+
+		    	   end -- end of: if(tmp_nbRplcdWrds > 0)	
+		    	end --end of: for v, rule in pairs(val.rules) do
+
+
+		    	if(current_row >= nb_rows) then break end
+
+		      end -- end of : for key, val in pairs(needs_conf) do
+
+
+               for _, tmp_data in pairs(tbl_multi_ocrncs)do
+                  if(ignorable_rules.added[tmp_data.rule_name] ~= nil and ignorable_rules.added[tmp_data.rule_name].nb_reviewed_lines < ignorable_rules.added[tmp_data.rule_name].total_lines)then			  
+               	  table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
+               	  table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
+                 end
+               end
+
+
+               -- remove all non-applicable rules
+               for aLineIdx, lineRules in pairs(non_applicable_rules.lines)do
+                  for aKey = #lineRules, 1, -1 do
+                     table.remove(needs_conf[aLineIdx].rules, aKey)
+                  end
+               end
+
+
+               -- total_repls_to_review
+               -- label
+               tmp_tbl = { class = "label"; label = string.format("Total Replacement(s) to review: %d/%d", reviewed_repls, total_repls_to_review);  x = 0; y = pos_y; height = 1; width = 1; }
+               table.insert(tmp_conf, tmp_tbl)
+
+               -- if no extra replacement is available to be confirmed -> exit
+               if(#cntrl_list.items == 0)then break end
+
+            else 
+                -- reposition controls to their default positions 
+			    for _, a_detail in ipairs(avail_details)do
+				   local current_detail = a_detail.data
+
+				   for _, tmp_cntrl in pairs(current_detail)do
+				      tmp_cntrl.y = tmp_cntrl.control_pos.default.y
 				   end
-
-                   table.insert(items, dropdown_item)
-				   table.insert(items, "Ignore")
-
-                   -- action dropdown
-				   local tmp_action_dropdown = {name = "action_dropdown_" .. key .. "_" .. v; class = "dropdown"; x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = txt_box_width; value = items[1]; items = items}
-                   table.insert(tmp_conf, tmp_action_dropdown)
-
-				   -- ignore and never ask about this rule dropdown menu, display this option only once in the current confirm window
-				   if(ignorable_rules.current[rule.wrng_names] == nil and ignorable_rules.final[rule.wrng_names] ~= nil)then
-				      ignorable_rules.current[rule.wrng_names] = true
-
-				      table.insert(tbl_multi_ocrncs, {rule_name = rule.wrng_names, dropdown = tmp_action_dropdown})
-				   end
-
-                   table.insert(cntrl_list.items, key .. "_" .. v)
-				   init_fields(cntrl_list.lines, v, {key, rule.wrng_names})
-
-			       pos_y = (pos_y + 5 + txt_box_hight)
-			       current_row = current_row + 1
-
-			       break -- to use only 1 "rule" for each reviewed "line"
-
-			   else
-			       if(non_applicable_rules.lines[key] == nil)then non_applicable_rules.lines[key] = {v}
-			       else table.insert(non_applicable_rules.lines[key], v) end
-
-			       total_repls_to_review = total_repls_to_review - 1
-
-				   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
-				      ignorable_rules.added[rule.wrng_names].total_lines = ignorable_rules.added[rule.wrng_names].total_lines - 1
-				   end
-
-			   end -- end of: if(tmp_nbRplcdWrds > 0)	
-			end --end of: for v, rule in pairs(val.rules) do
-
-
-			if(current_row >= nb_rows) then break end
-
-		  end -- end of : for key, val in pairs(needs_conf) do
-
-
-            for _, tmp_data in pairs(tbl_multi_ocrncs)do
-		       if(ignorable_rules.added[tmp_data.rule_name] ~= nil and ignorable_rules.added[tmp_data.rule_name].nb_reviewed_lines < ignorable_rules.added[tmp_data.rule_name].total_lines)then			  
-				  table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
-				  table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
-			   end
-		    end
-
-
-			-- remove all non-applicable rules
-			for aLineIdx, lineRules in pairs(non_applicable_rules.lines)do
-			   for aKey = #lineRules, 1, -1 do
-			      table.remove(needs_conf[aLineIdx].rules, aKey)
-			   end
-			end
-
-
-			-- total_repls_to_review
-			-- label
-			tmp_tbl = { class = "label"; label = string.format("Total Replacement(s) to review: %d/%d", reviewed_repls, total_repls_to_review);  x = 0; y = pos_y; height = 1; width = 1; }
-			table.insert(tmp_conf, tmp_tbl)
-
-			-- if no extra replacement is available to be confirmed -> exit
-			if(#cntrl_list.items == 0)then break end
-
-
-			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Close"} )
-
-			if(tostring(cfg_res) ~= "false" and (string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip"))then			    
-                local sel_action
-
-				for cntrl_item_key, cntrl_item_val in ipairs(cntrl_list.items)do
-				   local sub_idx , rule_idx = cntrl_item_val:match("(%d+)%_(%d+)")
-				   sub_idx, rule_idx = tonumber(sub_idx), tonumber(rule_idx)
-
-				   local current_rule = needs_conf[sub_idx].rules[rule_idx].wrng_names
-
-				   sel_action = get_selected_action(trim(config["action_dropdown_" .. cntrl_item_val]))
-
-                   if(trim(sel_action.act_type:lower()) == 'ignore_all')then
-					  ignorable_rules.ignored[current_rule] = true
-				   end
-
-				   if(ignorable_rules.ignored[current_rule] == nil and string.lower(cfg_res) == "replace")then
-				      if(value_exists({'replace', 'replace_all'}, trim(sel_action.act_type:lower())))then
-
-					     local apply_on_lines = {[sub_idx] = true}
-
-                         if(trim(sel_action.act_type:lower()) == 'replace_all' and ignorable_rules.added[current_rule] ~= nil and ignorable_rules.final[current_rule] ~= nil)then
-						    apply_on_lines = ignorable_rules.added[current_rule].lines
-						    arr_replace_all.rules[current_rule] = true
-						 end
-
-                         for tmp_idx, _ in pairs(apply_on_lines)do
-						    -- replace the confirmed text
-						    local line = subtitles[tmp_idx]
-
-						    -- log stats -> must be done before the next step
-						    local new_str, _, tmp_tags, tmp_nbRplcdWrds = replaceText(tmp_idx, ((tmp_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
-
-						    nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
-
-							local cntl_rule_id = fields_lookup(cntrl_list.lines, {tmp_idx, current_rule})
-
-							if(cntl_rule_id ~= nil)then
-						        line.text = trim(config["line_tags_" .. tmp_idx .. "_" .. cntl_rule_id]) .. trim(config["cr_word_" .. tmp_idx .. "_" .. cntl_rule_id])
-							else 
-							    line.text = trim(tmp_tags .. new_str)
-							    reviewed_repls = reviewed_repls + 1
-							end    
-
-						    subtitles[tmp_idx] = line
-						 end
-
-				      end
-
-				   end -- end of: if(string.lower(cfg_res) == "replace")then
-
-
-                   if(ignorable_rules.ignored[current_rule] == nil)then needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
-				   elseif(arr_replace_all.rules[current_rule] == nil)then reviewed_repls = reviewed_repls - 1 end
-
-                   -- add current_rule to the list of the ignored rules, to delete all its instances in needs_conf,
-				   -- no need to do table.remove(needs_conf[sub_idx].rules, rule_idx) , it will be removed later anyway
-				   if(arr_replace_all.rules[current_rule] ~= nil)then ignorable_rules.ignored[current_rule] = true
-				   else table.remove(needs_conf[sub_idx].rules, rule_idx) end                  
 
 				end
 
-                -- remove all "ignored all"/"replaced all" rules from "needs_conf"
-			    if(next(ignorable_rules.ignored) ~= nil) then
+            end-- end of: if(not from_detail)then
 
-			       for ignored_rule in pairs(ignorable_rules.ignored) do
 
-			    	  -- get all the keys of the needs_conf[] items that contain the current "ignored_rule"
-			    	  for rule_2b_removed_line_id in pairs(ignorable_rules.added[ignored_rule].lines)do
+			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Details", "Close"})
 
-                         if(arr_replace_all.rules[ignored_rule] == nil)then
-			    			total_repls_to_review = total_repls_to_review - 1
-						 end
+			if(tostring(cfg_res) ~= "false")then
 
-			    		 for rmv_rule_key = #needs_conf[rule_2b_removed_line_id].rules, 1, -1 do
+			    if(string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip")then
+                    from_detail = false  				
+                    local sel_action
 
-			    		    if(needs_conf[rule_2b_removed_line_id].rules[rmv_rule_key].wrng_names == ignored_rule)then
-			    		       table.remove(needs_conf[rule_2b_removed_line_id].rules, rmv_rule_key)
-			    			end
+			    	for cntrl_item_key, cntrl_item_val in ipairs(cntrl_list.items)do
+			    	   local sub_idx , rule_idx = cntrl_item_val:match("(%d+)%_(%d+)")
+			    	   sub_idx, rule_idx = tonumber(sub_idx), tonumber(rule_idx)
 
-			    		 end
+			    	   local current_rule = needs_conf[sub_idx].rules[rule_idx].wrng_names
 
-			    		 needs_conf[rule_2b_removed_line_id].total_rules = #needs_conf[rule_2b_removed_line_id].rules
-			    	  end
+			    	   sel_action = get_selected_action(trim(config["action_dropdown_" .. cntrl_item_val]))
 
-			       end
+                       if(trim(sel_action.act_type:lower()) == 'ignore_all')then
+			    		  ignorable_rules.ignored[current_rule] = true
+			    	   end
+
+			    	   if(ignorable_rules.ignored[current_rule] == nil and string.lower(cfg_res) == "replace")then
+			    	      if(value_exists({'replace', 'replace_all'}, trim(sel_action.act_type:lower())))then
+
+			    		     local apply_on_lines = {[sub_idx] = true}
+
+                             if(trim(sel_action.act_type:lower()) == 'replace_all' and ignorable_rules.added[current_rule] ~= nil and ignorable_rules.final[current_rule] ~= nil)then
+			    			    apply_on_lines = ignorable_rules.added[current_rule].lines
+			    			    arr_replace_all.rules[current_rule] = true
+			    			 end
+
+                             for tmp_idx, _ in pairs(apply_on_lines)do
+			    			    -- replace the confirmed text
+			    			    local line = subtitles[tmp_idx]
+
+			    			    -- log stats -> must be done before the next step
+			    			    local new_str, _, tmp_tags, tmp_nbRplcdWrds = replaceText(tmp_idx, ((tmp_idx+1)-dlg_st_at), {needs_conf[sub_idx].rules[rule_idx]}, line.text, false, rplcd_at_lines, needs_conf, true)
+
+			    			    nbRplcdWrds = nbRplcdWrds + tmp_nbRplcdWrds
+
+			    				local cntl_rule_id = fields_lookup(cntrl_list.lines, {tmp_idx, current_rule})
+
+			    				if(cntl_rule_id ~= nil)then
+			    			        line.text = trim(config["line_tags_" .. tmp_idx .. "_" .. cntl_rule_id]) .. trim(config["cr_word_" .. tmp_idx .. "_" .. cntl_rule_id])
+			    				else 
+			    				    line.text = trim(tmp_tags .. new_str)
+			    				    reviewed_repls = reviewed_repls + 1
+			    				end    
+
+			    			    subtitles[tmp_idx] = line
+			    			 end
+
+			    	      end
+
+			    	   end -- end of: if(string.lower(cfg_res) == "replace")then
+
+
+                       if(ignorable_rules.ignored[current_rule] == nil)then needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
+			    	   elseif(arr_replace_all.rules[current_rule] == nil)then reviewed_repls = reviewed_repls - 1 end
+
+                       -- add current_rule to the list of the ignored rules, to delete all its instances in needs_conf,
+			    	   -- no need to do table.remove(needs_conf[sub_idx].rules, rule_idx) , it will be removed later anyway
+			    	   if(arr_replace_all.rules[current_rule] ~= nil)then ignorable_rules.ignored[current_rule] = true
+			    	   else table.remove(needs_conf[sub_idx].rules, rule_idx) end                  
+
+			    	end
+
+                    -- remove all "ignored all"/"replaced all" rules from "needs_conf"
+			        if(next(ignorable_rules.ignored) ~= nil) then
+
+			           for ignored_rule in pairs(ignorable_rules.ignored) do
+
+			        	  -- get all the keys of the needs_conf[] items that contain the current "ignored_rule"
+			        	  for rule_2b_removed_line_id in pairs(ignorable_rules.added[ignored_rule].lines)do
+
+                             if(arr_replace_all.rules[ignored_rule] == nil)then
+			        			total_repls_to_review = total_repls_to_review - 1
+			    			 end
+
+			        		 for rmv_rule_key = #needs_conf[rule_2b_removed_line_id].rules, 1, -1 do
+
+			        		    if(needs_conf[rule_2b_removed_line_id].rules[rmv_rule_key].wrng_names == ignored_rule)then
+			        		       table.remove(needs_conf[rule_2b_removed_line_id].rules, rmv_rule_key)
+			        			end
+
+			        		 end
+
+			        		 needs_conf[rule_2b_removed_line_id].total_rules = #needs_conf[rule_2b_removed_line_id].rules
+			        	  end
+
+			           end
+
+			        end
+
+			        ignorable_rules.current = {}
+                    ignorable_rules.ignored = {}
+
+			    elseif(string.lower(cfg_res) == "details")then
+				   apply_dialog_values(config, tmp_conf)
+
+				   from_detail = true
+
+				   avail_details = {}
+
+				   for detail_idx, detail_data in ipairs(details.ids)do
+				     local tmp_key = detail_data.line .. '_' .. detail_data.rule_id
+
+					 local pre_lines = config['pre_lines_' .. tmp_key] and config['pre_lines_' .. tmp_key] > 0 and tonumber(config['pre_lines_' .. tmp_key]) or 0
+					 local post_lines = config['post_lines_' .. tmp_key] and config['post_lines_' .. tmp_key] > 0 and tonumber(config['post_lines_' .. tmp_key]) or 0
+
+				     if((pre_lines > 0 and  pre_lines <= detail_max_lines) or (post_lines > 0 and post_lines <= detail_max_lines))then
+					    table.insert(avail_details, {data = details.data[detail_idx], ids = detail_data, pre_lines = pre_lines, post_lines = post_lines})
+					 end
+
+				   end
+
+                   if(#avail_details > 0)then
+				      local detail_id = 1
+				      local details_res
+				      local details_config = {}
+
+                      repeat
+
+				          if(avail_details[detail_id] ~= nil)then
+					         local current_detail = avail_details[detail_id]
+
+					   	     local details_btns = {}
+
+					   	     if(detail_id > 1)then table.insert(details_btns, 'Previous')
+					   	     else table.insert(details_btns, '...')end
+
+					   	     if(detail_id < #avail_details)then table.insert(details_btns, string.format('Next %d/%d', detail_id, #avail_details))
+                             else table.insert(details_btns, '...')end
+
+                             table.insert(details_btns, 'Close')
+
+                             local tmp_detail_conf = {} 
+							 local tmp_cntl_tbl
+                             local tmp_pos_y = 0
+							 local tmp_txt_box_hight, tmp_txt_box_width = 7, 5
+
+							 -- Pre-lines							
+							 if(current_detail.pre_lines > 0 and current_detail.pre_lines <= detail_max_lines)then
+							    local arr_text = {}
+
+                                local pre_i = current_detail.ids.line - 1
+							    local nb_lines_added = current_detail.pre_lines
+
+							    while(pre_i > 0 and pre_i >= dlg_st_at and nb_lines_added > 0)do
+							       local tmp_line = subtitles[pre_i]
+
+							       if(tmp_line.class == "dialogue")then
+							    	  table.insert(arr_text, tmp_line.text)
+							    	  nb_lines_added = nb_lines_added - 1
+							       end
+
+							       pre_i = pre_i - 1
+							    end
+
+							    local tmp_text = ''
+
+                                   for pre_i = #arr_text, 1, -1 do
+							       tmp_text = tmp_text .. arr_text[pre_i] .. "\n"
+							    end
+
+		    		            -- label
+		    		            tmp_cntl_tbl = {class = "label", label = string.format("The up to %d line(s) before the current viewed line", current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
+
+		    		            -- textbox
+		    		            tmp_cntl_tbl = {name = "pre_line_text", class = "textbox", x = 0, y = (tmp_pos_y + 1), height = tmp_txt_box_hight, width = (tmp_txt_box_width * 5),
+		    		            		           text = tmp_text
+		    		            	              }
+		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
+
+							    tmp_pos_y = tmp_txt_box_hight + 2
+                             end
+
+							 local max_y = tmp_pos_y
+
+							 -- repostiong the current control
+					   	     for _, tmp_cntrl in pairs(current_detail.data)do
+					   	        tmp_cntrl.y = tmp_cntrl.control_pos.detail.y + tmp_pos_y
+							    table.insert(tmp_detail_conf, tmp_cntrl)
+
+								if((tmp_cntrl.y + tmp_cntrl.height) > max_y)then max_y = tmp_cntrl.y + tmp_cntrl.height end
+					   	     end
+
+
+							 -- Post-lines							
+							 if(current_detail.post_lines > 0 and current_detail.post_lines <= detail_max_lines)then
+								tmp_pos_y = max_y + 1
+								local tmp_text = ''
+
+                                local post_i = current_detail.ids.line + 1
+							    local nb_lines_added = current_detail.post_lines
+
+							    while(post_i <= #subtitles and nb_lines_added > 0)do
+							       local tmp_line = subtitles[post_i]
+
+							       if(tmp_line.class == "dialogue")then
+									  tmp_text = tmp_text .. tmp_line.text .. "\n"
+							    	  nb_lines_added = nb_lines_added - 1
+							       end
+
+							       post_i = post_i + 1
+							    end
+
+		    		            -- label
+		    		            tmp_cntl_tbl = {class = "label", label = string.format("The up to %d line(s) after the current viewed line", current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
+
+		    		            -- textbox
+		    		            tmp_cntl_tbl = {name = "post_line_text", class = "textbox", x = 0, y = (tmp_pos_y + 1), height = tmp_txt_box_hight, width = (tmp_txt_box_width * 5),
+		    		            		        text = tmp_text
+		    		            	           }
+		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
+                             end
+
+					   	     details_res, details_config = aegisub.dialog.display(tmp_detail_conf, details_btns)
+
+					   	     apply_dialog_values(details_config, current_detail.data)
+
+							 if(tostring(details_res) ~= "false")then
+					   	        if(details_res:lower() == 'previous' and detail_id > 1)then detail_id = detail_id - 1
+					   	        elseif(details_res:lower():match('^(next).*') == 'next' and detail_id < #avail_details)then detail_id = detail_id + 1 end
+							 end
+
+                          end
+
+				      until(tostring(details_res) == "false" or trim(details_res:lower()) == "close")
+
+				   end-- end of: if(#avail_details > 0)then
 
 			    end
 
-			    ignorable_rules.current = {}
-                ignorable_rules.ignored = {}
-			end
-
+			end-- end of: if(tostring(cfg_res) ~= "false")then
 
 	   until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
+
 	 end -- end of: if(total_repls_to_review > 0)then
 
 	 showStats(rplcd_at_lines)
@@ -1803,5 +2013,15 @@ function get_selected_action(str)
  return sel_action
 end
 
+
+
+function apply_dialog_values(arr_config, arr_dialog)
+
+   for _, dlg_cntl in pairs(arr_dialog)do
+      if(arr_config[dlg_cntl.name] ~= nil)then
+	     dlg_cntl.value = arr_config[dlg_cntl.name]
+	  end
+   end
+end
 
 aegisub.register_macro(script_name, script_description, appContext)
