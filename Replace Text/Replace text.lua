@@ -1,13 +1,12 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.5"
+script_version = "3.5.1"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
 util = require 'aegisub.util'
 
-include("utf8.lua")
 
 if(not dialg)then dialg = {} end
 dialg.conf = {}
@@ -32,7 +31,7 @@ function appContext(subtitles, selected_lines, active_line)
     local items = {"1- Do not log constants values changes", "2- Log All constants values changes",
 	               '3- Only log "global" constants values changes', '4- Only log "local" constants values changes'}
 
-	local tmp_conf = {name = "log_vars"; class = "dropdown"; x = 1; y = 0; height = 1; width = 7; value = items[1]; items = items}
+	local tmp_conf = {name = "log_vars", class = "dropdown", x = 1, y = 0, height = 1, width = 7, value = items[1], items = items}
 
 	local cfg_res
 
@@ -308,9 +307,9 @@ function replaceNames(subtitles, selected_lines, active_line)
 
                for _, tmp_data in pairs(tbl_multi_ocrncs)do
                   if(ignorable_rules.added[tmp_data.rule_name] ~= nil and ignorable_rules.added[tmp_data.rule_name].nb_reviewed_lines < ignorable_rules.added[tmp_data.rule_name].total_lines)then			  
-               	  table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
-               	  table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
-                 end
+               	     table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
+               	     table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
+                  end
                end
 
 
@@ -406,7 +405,17 @@ function replaceNames(subtitles, selected_lines, active_line)
                        -- add current_rule to the list of the ignored rules, to delete all its instances in needs_conf,
 			    	   -- no need to do table.remove(needs_conf[sub_idx].rules, rule_idx) , it will be removed later anyway
 			    	   if(arr_replace_all.rules[current_rule] ~= nil)then ignorable_rules.ignored[current_rule] = true
-			    	   else table.remove(needs_conf[sub_idx].rules, rule_idx) end                  
+			    	   else 
+
+
+					       if(ignorable_rules.added[current_rule] ~= nil and ignorable_rules.ignored[current_rule] == nil)then
+						      if(ignorable_rules.added[current_rule].lines[sub_idx] ~= nil)then
+							     ignorable_rules.added[current_rule].lines[sub_idx] = nil
+							  end
+						   end
+
+					       table.remove(needs_conf[sub_idx].rules, rule_idx)
+					    end
 
 			    	end
 
@@ -471,11 +480,13 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 					   	     local details_btns = {}
 
-					   	     if(detail_id > 1)then table.insert(details_btns, 'Previous')
-					   	     else table.insert(details_btns, '...')end
+                             if(#avail_details > 1)then
+					   	        if(detail_id > 1)then table.insert(details_btns, 'Previous')
+					   	        else table.insert(details_btns, '...')end
 
-					   	     if(detail_id < #avail_details)then table.insert(details_btns, string.format('Next %d/%d', detail_id, #avail_details))
-                             else table.insert(details_btns, '...')end
+					   	        if(detail_id < #avail_details)then table.insert(details_btns, string.format('Next %d/%d', detail_id, #avail_details))
+                                else table.insert(details_btns, '...')end
+							 end
 
                              table.insert(details_btns, 'Close')
 
@@ -509,7 +520,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The up to %d line(s) before the current viewed line", current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) before the current viewed line", current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -552,7 +563,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The up to %d line(s) after the current viewed line", current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) after the current viewed line", current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -566,7 +577,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 					   	     apply_dialog_values(details_config, current_detail.data)
 
-							 if(tostring(details_res) ~= "false")then
+							 if(#avail_details > 1 and tostring(details_res) ~= "false")then
 					   	        if(details_res:lower() == 'previous' and detail_id > 1)then detail_id = detail_id - 1
 					   	        elseif(details_res:lower():match('^(next).*') == 'next' and detail_id < #avail_details)then detail_id = detail_id + 1 end
 							 end
@@ -1155,40 +1166,42 @@ end
 function showStats(rplcd)
 
  for k, v in pairs(rplcd) do
-  t = split(rplcd[k].lines, ' ')
+    t = rplcd[k].lines
+    table.sort(t)
 
-  if(string.lower(trim(rplcd[k].class)) == 'regex')then
-   aegisub.debug.out("\n [ %d Replacement(s) using PCRE]\n %s \n @Line(s): ", #t, rplcd[k].hint)
-  else aegisub.debug.out("\n[ %d Replacement(s) ]\n %s \n @Line(s): ", #t, rplcd[k].hint) end
+    if(string.lower(trim(rplcd[k].class)) == 'regex')then
+     aegisub.debug.out("\n [ %d Replacement(s) using PCRE]\n %s \n @Line(s): ", #t, rplcd[k].hint)
+    else aegisub.debug.out("\n[ %d Replacement(s) ]\n %s \n @Line(s): ", #t, rplcd[k].hint) end
 
-  for i = 1, #t do
-   if(i == 1)then -- initialize
-    current_line = tonumber(t[i])
-    int_start, int_end, all_done = tonumber(t[i]), tonumber(t[i]), false
+    for i = 1, #t do
+       if(i == 1)then -- initialize
+           current_line = t[i]
+           int_start, int_end, all_done = t[i], t[i], false
+       elseif(t[i] == current_line + 1)then int_end, current_line = t[i], t[i] -- sequence
+       else
 
-   elseif(tonumber(t[i]) == current_line + 1)then int_end, current_line = tonumber(t[i]), tonumber(t[i]) -- sequence
-   else if(int_end == int_start)then
-	     aegisub.debug.out("%d ", int_start)
-         all_done = true
+	       if(int_end == int_start)then
+	          aegisub.debug.out("%d ", int_start)
+              all_done = true
+           elseif(int_end > int_start)then
+	          aegisub.debug.out("%d-%d ", int_start, int_end)
+  	          all_done = true
+  	       end -- end of: if(int_end == int_start)
 
-         elseif(int_end > int_start)then
-	     aegisub.debug.out("%d-%d ", int_start, int_end)
- 	     all_done = true
- 	    end -- end of: if(int_end == int_start)
+           -- initialize with the new infos
+           current_line = t[i]
+           int_start, int_end, all_done = t[i], t[i], false
+       end -- end of: if(i = 1)
 
-        -- initialize with the new infos
-        current_line = tonumber(t[i])
-        int_start, int_end, all_done = tonumber(t[i]), tonumber(t[i]), false
-   end -- end of: if(i = 1)
-  end -- end of: for i = 1, #t do
+    end -- end of: for i = 1, #t do
 
-  -- last line wasn't added
-  if(not all_done)then
-   if(int_end == int_start)then aegisub.debug.out("%d ", int_start)
-   elseif(int_end > int_start)then  aegisub.debug.out("%d-%d ", int_start, int_end) end
-  end
+    -- last line wasn't added
+    if(not all_done)then
+       if(int_end == int_start)then aegisub.debug.out("%d ", int_start)
+       elseif(int_end > int_start)then  aegisub.debug.out("%d-%d ", int_start, int_end) end
+    end
 
-  aegisub.debug.out("\n-----------------------------------------------------------------------------")
+    aegisub.debug.out("\n-----------------------------------------------------------------------------")
  end
 end
 
@@ -1221,8 +1234,8 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 				   nbRplcdWrds = nbRplcdWrds + 1
 
 				   if(log_stats)then
-					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
-					  else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil)then table.insert(rplcd_at_lines[rules[j].wrng_names].lines, idx)
+					  else rplcd_at_lines[rules[j].wrng_names] = {lines = {idx}, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 				   end
 			   end
 
@@ -1244,8 +1257,8 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 			        nbRplcdWrds = nbRplcdWrds + 1
 
 				    if(log_stats)then
-					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
-					  else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+					  if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then table.insert(rplcd_at_lines[rules[j].wrng_names].lines, idx)
+					  else rplcd_at_lines[rules[j].wrng_names] = {lines = {idx}, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 				    end
 			   end
 
@@ -1302,8 +1315,8 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 						  	             nbRplcdWrds = nbRplcdWrds + 1
 
 						  	             if(log_stats)then
-						  	                if(rplcd_at_lines[rules[j].wrng_names] ~= nil) then rplcd_at_lines[rules[j].wrng_names].lines = rplcd_at_lines[rules[j].wrng_names].lines .. ' ' .. idx
-						  	                else rplcd_at_lines[rules[j].wrng_names] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+						  	                if(rplcd_at_lines[rules[j].wrng_names] ~= nil)then table.insert(rplcd_at_lines[rules[j].wrng_names].lines, idx)
+						  	                else rplcd_at_lines[rules[j].wrng_names] = {lines = {idx}, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 						  	             end
 
 									  else valid_args = false
@@ -1365,8 +1378,8 @@ function replaceText(i, idx, rules, line_txt, check_confirm, rplcd_at_lines, nee
 							nbRplcdWrds = nbRplcdWrds + 1
 
 							if(log_stats)then
-							   if(rplcd_at_lines[tmp[k]] ~= nil)then rplcd_at_lines[tmp[k]].lines = rplcd_at_lines[tmp[k]].lines .. ' ' .. idx
-							   else rplcd_at_lines[tmp[k]] = {lines = idx, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
+							   if(rplcd_at_lines[tmp[k]] ~= nil)then table.insert(rplcd_at_lines[tmp[k]].lines, idx)
+							   else rplcd_at_lines[tmp[k]] = {lines = {idx}, cr_name = rules[j].cr_name, class = rules[j].class, hint = rules[j].hint} end
 							end
 						end
 
@@ -1498,12 +1511,11 @@ function applyVars(val, vars, options)
 	 local isGlobal, apply = false, false
 
 	 if(matches ~= nil)then
-	   isGlobal = (string.utf8sub(matches[2].str, 1, 1) == '_')
+	   isGlobal = (string.sub(matches[2].str, 1, 1) == '_')
 
-	   local key_global = string.lower(string.utf8sub(matches[2].str, 2, -1))
+	   local key_global = string.lower(string.sub(matches[2].str, 2))
 	   local key_local = string.lower(matches[2].str)
 
-	   --apply = (isGlobal and vars.global[key_global] ~= nil) or (not isGlobal and vars.locals[key_local] ~= nil)
 	   apply = (isGlobal and vars.global[key_global] ~= nil) or (not isGlobal and fields_lookup(vars.locals, {key_local, options.fname, 'val'}) ~= nil)
 
 	   if(apply)then
@@ -1547,13 +1559,6 @@ function applyVars(val, vars, options)
 
 			   end
 
-
-		   -- tmp_str = str:utf8sub(1, matches[1].last)
-           -- utf8sub could not work correctly if used with a non-ASCII string
-		   -- it uses str:sub(first_byte, last_byte) that somehow treats 2 bytes as if they are 1 byte
-		   -- for example this string: str = م%a_var%x (م is 2 bytes)
-		   -- and the result of: str:utf8sub(1, matches[1].last) as str:utf8sub(1, 9)
-		   -- will produce م%a_var%x rather than م%a_var%
 
 		   local tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
 		   local tmp_str_matches = re.match(str, tmp_pattern)
@@ -1610,14 +1615,14 @@ function split(s, delim)
   -- find each instance of a string followed by the delimiter
 
   while true do
-    local pos = string.find (s, delim, start, true) -- plain find
+    local pos = string.find(s, delim, start, true) -- plain find
 
     if not pos then
       break
     end
 
-    table.insert (t, string.sub (s, start, pos - 1))
-    start = pos + string.len (delim)
+    table.insert (t, string.sub(s, start, pos - 1))
+    start = pos + string.len(delim)
   end -- while
 
   -- insert final one (after last delimiter)
@@ -2022,6 +2027,7 @@ function apply_dialog_values(arr_config, arr_dialog)
 	     dlg_cntl.value = arr_config[dlg_cntl.name]
 	  end
    end
+
 end
 
 aegisub.register_macro(script_name, script_description, appContext)
