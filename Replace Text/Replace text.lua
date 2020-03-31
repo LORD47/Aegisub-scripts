@@ -1,12 +1,13 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.5.1"
+script_version = "3.6"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
 util = require 'aegisub.util'
-
+inspect = require "inspect" --tbr
+uiLocalization = require "uiLocalization"
 
 if(not dialg)then dialg = {} end
 dialg.conf = {}
@@ -26,11 +27,75 @@ default_file_path = ''
 dlg_st_at = 0
 detail_max_lines = 10
 
+
 function appContext(subtitles, selected_lines, active_line)
+uiDefaultLang = {
+                 en = {
+			           caption = "English",
+			           ui = {
+			  		         btns = {replaceText = "Replace Text", help = "Help", options = "Options", close = "Close", apply = "Apply",
+ 			  		                 replace = "Replace", skip = "Skip", details = "Details",
+                                     previous = "Previous", next = "Next"
+			  				        },
 
-    local items = {"1- Do not log constants values changes", "2- Log All constants values changes",
-	               '3- Only log "global" constants values changes', '4- Only log "local" constants values changes'}
+						     options = {
+							            labels = {
+										          langDropdown = "Language: "
+												 }
+									   },
+									   
+							 startupWindow = {
+							                  definedConstantsDropDown = {
+										                                  label = '"Defined Constants" values changes:',
+																		  items = {
+																		           "Do not log constants values changes", "Log All constants values changes",
+	                                                                               'Only log "global" constants values changes', 'Only log "local" constants values changes'
+																				  }
+												                         }
+                                             },
+                            
+                             confirmRepTxtWindow = {
+                                                    labels = {tags = "Tags: @Line %d: Reviewing %d/%d replacement(s): ",
+                                                              orgnlTxt = "Original: @",
+                                                              newTxt = "Replacement:",
+                                                              totalReplcmnts = "Total Replacement(s) to review: %d/%d", 
+                                                              details = {
+                                                                         preLines = "The %d line(s) before the current viewed line",
+                                                                         postLines = "The %d line(s) after the current viewed line"
+                                                                        } 
+                                                             },
 
+                                                    hints = {tags = "Tags of the current subtitle line",
+                                                             preLines = 'Number of lines preceeding the current line to show in the "Details" Window',
+                                                             postLines = 'Number of lines following the current line to show in the "Details" Window'
+                                                             }
+                                                   }
+
+			  			    }
+                      }
+				}
+
+
+
+    -- load "Localization" file
+    local status, uiLocales = pcall(require, "uiLocalization.replaceTextLocales")
+          uiLocales = status and uiLocales or nil
+	  
+    if(uiLocales)then uiLocalization.Languages = uiLocales
+	   uiLocalization.setLocale("fr")
+	end	
+				
+--aegisub.debug.out('lang = %s\n%s\n', uiLocalization.currentLang, inspect(uiLocalization))-- tbr
+    --local items = {"1- Do not log constants values changes", "2- Log All constants values changes",
+	--               '3- Only log "global" constants values changes', '4- Only log "local" constants values changes'} -- tbr
+
+    local items = uiLocalization.translate('startupWindow.definedConstantsDropDown.items', uiDefaultLang.en.ui, {type = "array", size = 4})
+    
+   --aegisub.debug.out('%s\n', inspect(items))-- tbr
+    for k, item in ipairs(items)do
+	   items[k] = string.format('%d- %s', k, item)
+	end
+   
 	local tmp_conf = {name = "log_vars", class = "dropdown", x = 1, y = 0, height = 1, width = 7, value = items[1], items = items}
 
 	local cfg_res
@@ -38,24 +103,31 @@ function appContext(subtitles, selected_lines, active_line)
     repeat
 	 dialg.conf = {}
 
-     table.insert(dialg.conf, {class = "label"; label = '"Defined Constants" values changes:'; x = 0; y = 0 ; height = 1; width = 1;})
+     table.insert(dialg.conf, {class = "label", label = uiLocalization.translate('startupWindow.definedConstantsDropDown.label', uiDefaultLang.en.ui), x = 0, y = 0, height = 1, width = 1})
      table.insert(dialg.conf, tmp_conf)
+     
+	 local dlg_btns = {replaceText = uiLocalization.translate('btns.replaceText', uiDefaultLang.en.ui),
+  	                   help = uiLocalization.translate('btns.help', uiDefaultLang.en.ui),
+  	                   options = uiLocalization.translate('btns.options', uiDefaultLang.en.ui),
+					   close = uiLocalization.translate('btns.close', uiDefaultLang.en.ui)
+					  }
 
-     cfg_res, config = aegisub.dialog.display(dialg.conf, {"Replace Text", "Help", "Close"} )
+     cfg_res, config = aegisub.dialog.display(dialg.conf, {dlg_btns.replaceText, dlg_btns.options, dlg_btns.help, dlg_btns.close})
 
      if(tostring(cfg_res) ~= "false")then
 
-      if(string.lower(cfg_res) == "replace text")then
+      if(cfg_res:lower() == dlg_btns.replaceText:lower())then
 	   local tmp_val = trim(string.match(trim(config["log_vars"]), "^%d+"))
 
 	   vars_log = {log_type = tmp_val, entries = {}, undefined_vars = {global = {}, locals = {}}}
 	   invalid_commands = {}
 
  	   replaceNames(subtitles, selected_lines, active_line)
-      elseif(string.lower(cfg_res) == "help")then showHelp() end
+      elseif(cfg_res:lower() == dlg_btns.help:lower())then showHelp() 
+      elseif(cfg_res:lower() == dlg_btns.options:lower())then showOptions() end
      end
 
-    until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "replace text" or string.lower(cfg_res) == "close")
+    until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.replaceText:lower() or cfg_res:lower() == dlg_btns.close:lower())
 end
 
 
@@ -188,7 +260,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 		    		   -- tags
 		    		   -- label
-		    		   tmp_tbl = {class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules),
+		    		   tmp_tbl = {class = "label"; label = string.format(uiLocalization.translate('confirmRepTxtWindow.labels.tags', uiDefaultLang.en.ui), ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules),
 					              x = 0; y = pos_y, height = 1; width = 1, control_pos = {default = {y = pos_y}, detail = {y = 0}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
@@ -196,21 +268,21 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 		    		   -- edit text
 		    		   tmp_tbl = {name = "line_tags_" .. key .. "_" .. v, class = "edit", x = 0, y = (pos_y + 1), height = 1, width = (txt_box_width * 5),
-		    		   			  value = tags; hint = "Tags of the current subtitle line", control_pos = {default = {y = pos_y + 1}, detail = {y = 1}}
+		    		   			  value = tags, hint = uiLocalization.translate('confirmRepTxtWindow.hints.tags', uiDefaultLang.en.ui), control_pos = {default = {y = pos_y + 1}, detail = {y = 1}}
 		    		   		     }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
 
 		    		   -- labels
 		    		   -- wrgn_word
-		    		   tmp_tbl = {class = "label"; label = "Original: @" ..  display_time(line.start_time),  height = 1; width = 1,
+		    		   tmp_tbl = {class = "label"; label = uiLocalization.translate('confirmRepTxtWindow.labels.orgnlTxt', uiDefaultLang.en.ui) ..  display_time(line.start_time),  height = 1; width = 1,
 					              x = 0, y = (pos_y + 2), control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
 
 		    		   -- cr_word
-		    		   tmp_tbl = {class = "label"; label = "Replacement:", x = txt_box_width; y = (pos_y + 2), height = 1; width = 1,
+		    		   tmp_tbl = {class = "label"; label = uiLocalization.translate('confirmRepTxtWindow.labels.newTxt', uiDefaultLang.en.ui), x = txt_box_width; y = (pos_y + 2), height = 1; width = 1,
                                   control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
@@ -236,7 +308,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 					      local min_val = (key - dlg_st_at >= detail_max_lines) and detail_max_lines or key - dlg_st_at
 
                           tmp_tbl = {name = "pre_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 2); height = 1,  value = 0, min = 0, max = min_val,
-		    		                 hint = 'Number of lines preceeding the current line to show in the "Details" Window'}
+		    		                 hint = uiLocalization.translate('confirmRepTxtWindow.hints.preLines', uiDefaultLang.en.ui)}
                           table.insert(tmp_conf, tmp_tbl)
 					   end
 
@@ -245,7 +317,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 					      local max_val = (key + detail_max_lines <= #subtitles) and detail_max_lines or #subtitles - key
 
 		    		      tmp_tbl = {name = "post_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 3 + txt_box_hight); height = 1,  value = 0, min = 0, max = max_val,
-		    		                 hint = 'Number of lines following the current line to show in the "Details" Window'}
+		    		                 hint = uiLocalization.translate('confirmRepTxtWindow.hints.postLines', uiDefaultLang.en.ui)}
                           table.insert(tmp_conf, tmp_tbl)
 					   end
 
@@ -323,7 +395,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
                -- total_repls_to_review
                -- label
-               tmp_tbl = { class = "label"; label = string.format("Total Replacement(s) to review: %d/%d", reviewed_repls, total_repls_to_review);  x = 0; y = pos_y; height = 1; width = 1; }
+               tmp_tbl = { class = "label"; label = string.format(uiLocalization.translate('confirmRepTxtWindow.labels.totalReplcmnts', uiDefaultLang.en.ui), reviewed_repls, total_repls_to_review);  x = 0; y = pos_y; height = 1; width = 1; }
                table.insert(tmp_conf, tmp_tbl)
 
                -- if no extra replacement is available to be confirmed -> exit
@@ -342,12 +414,19 @@ function replaceNames(subtitles, selected_lines, active_line)
 
             end-- end of: if(not from_detail)then
 
+            local dlg_btns = {replace = uiLocalization.translate('btns.replace', uiDefaultLang.en.ui),
+  	                          skip = uiLocalization.translate('btns.skip', uiDefaultLang.en.ui),
+  	                          details = uiLocalization.translate('btns.details', uiDefaultLang.en.ui),
+  	                          options = uiLocalization.translate('btns.options', uiDefaultLang.en.ui),
+			                  close = uiLocalization.translate('btns.close', uiDefaultLang.en.ui)
+			                 }
 
-			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Details", "Close"})
+			--cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Details", "Close"}) -- tbr
+			cfg_res, config = aegisub.dialog.display(tmp_conf, {dlg_btns.replace, dlg_btns.skip, dlg_btns.details, dlg_btns.options, dlg_btns.close})
 
 			if(tostring(cfg_res) ~= "false")then
 
-			    if(string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip")then
+			    if(cfg_res:lower() == dlg_btns.replace:lower() or cfg_res:lower() == dlg_btns.skip:lower())then
                     from_detail = false  				
                     local sel_action
 
@@ -363,7 +442,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 			    		  ignorable_rules.ignored[current_rule] = true
 			    	   end
 
-			    	   if(ignorable_rules.ignored[current_rule] == nil and string.lower(cfg_res) == "replace")then
+			    	   if(ignorable_rules.ignored[current_rule] == nil and cfg_res:lower() == dlg_btns.replace:lower())then
 			    	      if(value_exists({'replace', 'replace_all'}, trim(sel_action.act_type:lower())))then
 
 			    		     local apply_on_lines = {[sub_idx] = true}
@@ -396,7 +475,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 			    	      end
 
-			    	   end -- end of: if(string.lower(cfg_res) == "replace")then
+			    	   end -- end of: if(cfg_res:lower() == "replace")then
 
 
                        if(ignorable_rules.ignored[current_rule] == nil)then needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
@@ -449,7 +528,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 			        ignorable_rules.current = {}
                     ignorable_rules.ignored = {}
 
-			    elseif(string.lower(cfg_res) == "details")then
+			    elseif(cfg_res:lower() == dlg_btns.details:lower())then
 				   apply_dialog_values(config, tmp_conf)
 
 				   from_detail = true
@@ -471,6 +550,13 @@ function replaceNames(subtitles, selected_lines, active_line)
                    if(#avail_details > 0)then
 				      local detail_id = 1
 				      local details_res
+
+                      local dlg_btns = {previous = uiLocalization.translate('btns.previous', uiDefaultLang.en.ui),
+  	                                    next = uiLocalization.translate('btns.next', uiDefaultLang.en.ui),
+  	                                    options = uiLocalization.translate('btns.options', uiDefaultLang.en.ui),
+					                    close = uiLocalization.translate('btns.close', uiDefaultLang.en.ui)
+					                   }
+
 				      local details_config = {}
 
                       repeat
@@ -481,14 +567,15 @@ function replaceNames(subtitles, selected_lines, active_line)
 					   	     local details_btns = {}
 
                              if(#avail_details > 1)then
-					   	        if(detail_id > 1)then table.insert(details_btns, 'Previous')
+					   	        if(detail_id > 1)then table.insert(details_btns, dlg_btns.previous)
 					   	        else table.insert(details_btns, '...')end
 
-					   	        if(detail_id < #avail_details)then table.insert(details_btns, string.format('Next %d/%d', detail_id, #avail_details))
+					   	        if(detail_id < #avail_details)then table.insert(details_btns, string.format('%s %d/%d', dlg_btns.next, detail_id, #avail_details))
                                 else table.insert(details_btns, '...')end
 							 end
 
-                             table.insert(details_btns, 'Close')
+                             table.insert(details_btns, dlg_btns.options)
+                             table.insert(details_btns, dlg_btns.close)
 
                              local tmp_detail_conf = {} 
 							 local tmp_cntl_tbl
@@ -520,7 +607,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) before the current viewed line", current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format(uiLocalization.translate('confirmRepTxtWindow.labels.details.preLines', uiDefaultLang.en.ui), current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -563,7 +650,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) after the current viewed line", current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format(uiLocalization.translate('confirmRepTxtWindow.labels.details.postLines', uiDefaultLang.en.ui), current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -578,13 +665,13 @@ function replaceNames(subtitles, selected_lines, active_line)
 					   	     apply_dialog_values(details_config, current_detail.data)
 
 							 if(#avail_details > 1 and tostring(details_res) ~= "false")then
-					   	        if(details_res:lower() == 'previous' and detail_id > 1)then detail_id = detail_id - 1
-					   	        elseif(details_res:lower():match('^(next).*') == 'next' and detail_id < #avail_details)then detail_id = detail_id + 1 end
+					   	        if(details_res:lower() == dlg_btns.previous:lower() and detail_id > 1)then detail_id = detail_id - 1
+					   	        elseif(details_res:lower():match(string.format('^(%s).*', dlg_btns.next:lower())) == dlg_btns.next:lower() and detail_id < #avail_details)then detail_id = detail_id + 1 end
 							 end
 
                           end
 
-				      until(tostring(details_res) == "false" or trim(details_res:lower()) == "close")
+				      until(tostring(details_res) == "false" or trim(details_res:lower()) == dlg_btns.close:lower())
 
 				   end-- end of: if(#avail_details > 0)then
 
@@ -592,7 +679,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 			end-- end of: if(tostring(cfg_res) ~= "false")then
 
-	   until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
+	   until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.close:lower())
 
 	 end -- end of: if(total_repls_to_review > 0)then
 
@@ -1604,31 +1691,52 @@ function showHelp()
 end
 
 
+function showOptions()
+    local langs = {[uiDefaultLang.en.caption]  = "en" }
+	local items = {uiDefaultLang.en.caption}
+
+    for lang_id, aLangData in pairs(uiLocalization.Languages)do
+	   if(langs[aLangData.caption] == nil)then
+	      langs[aLangData.caption] = lang_id
+		  table.insert(items, aLangData.caption)
+	   end
+	end
+
+
+    repeat
+	    local tmp_conf = {}
+	    local pos_y = 0
+	    local tmp_tbl = {name = "current_lang", class = "dropdown", x = 1, y = pos_y, height = 1, width = 7, value = uiLocalization.Languages[uiLocalization.currentLang].caption, items = items}
+	    
+        table.insert(tmp_conf, {class = "label", label = uiLocalization.translate('options.labels.langDropdown', uiDefaultLang.en.ui), x = 0, y = pos_y, height = 1, width = 1})
+        table.insert(tmp_conf, tmp_tbl)
+        
+	    local dlg_btns = {apply = uiLocalization.translate('btns.apply', uiDefaultLang.en.ui),
+	  	 			      close = uiLocalization.translate('btns.close', uiDefaultLang.en.ui)
+	  	 			     }
+	    
+        local cfg_res, config = aegisub.dialog.display(tmp_conf, {dlg_btns.apply, dlg_btns.close})
+		
+		if(tostring(cfg_res) ~= "false")then
+		  if(cfg_res:lower() == dlg_btns.apply:lower())then
+		     uiLocalization.setLocale(langs[config["current_lang"]])
+		  end
+		end
+
+	until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.apply:lower() or cfg_res:lower() == dlg_btns.close:lower())
+end
+
 -- split a string on a delimiter
-function split(s, delim)
+function split(s, sep)
+    if(sep and sep:len() > 0)then
+        local fields = {}
 
-  assert(type(delim) == "string" and string.len (delim) > 0,"bad delimiter")
+        local pattern = string.format("([^%s]+)", sep)
+        string.gsub(s, pattern, function(c) table.insert(fields, c) end)
 
-  local start = 1
-  local t = {}  -- results table
+        return fields
 
-  -- find each instance of a string followed by the delimiter
-
-  while true do
-    local pos = string.find(s, delim, start, true) -- plain find
-
-    if not pos then
-      break
-    end
-
-    table.insert (t, string.sub(s, start, pos - 1))
-    start = pos + string.len(delim)
-  end -- while
-
-  -- insert final one (after last delimiter)
-  table.insert (t, string.sub (s, start))
-
-  return t
+    else return {s} end
 end
 
 
