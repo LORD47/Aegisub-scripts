@@ -1,19 +1,21 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.5.1"
+script_version = "3.6"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
 util = require 'aegisub.util'
-
+inspect = require "inspect" --tbr
+uiLocalization = require "uiLocalization"
 
 if(not dialg)then dialg = {} end
 dialg.conf = {}
 
 vars_tbl = {global = {}, locals = {}}
-vars_log = {log_type = '', entries = {}, undefined_vars = {global = {}, locals = {}}}
+vars_log = {log_type = '1', entries = {}, undefined_vars = {global = {}, locals = {}}}
 invalid_commands = {}
+invalid_translations = {}
 
 expr_update_log = {}
 
@@ -26,36 +28,95 @@ default_file_path = ''
 dlg_st_at = 0
 detail_max_lines = 10
 
+options_updated = false
+
+uiDefaultLang = {
+                 en = {
+			           caption = "English",
+			           ui = {
+			  		         btns = {replaceText = "Replace Text", help = "Help", options = "Options", close = "Close", apply = "Apply",
+ 			  		                 replace = "Replace", skip = "Skip", details = "Details",
+                                     previous = "Previous", next = "Next"
+			  				        },
+
+						     options = {
+							            labels = {
+										          langDropdown = "Language: "
+												 },
+												 
+							            definedConstantsDropDown = {
+										                            label = '"Defined Constants" values changes:',
+																	items = {
+																	         "Do not log constants values changes", "Log All constants values changes",
+	                                                                         'Only log "global" constants values changes', 'Only log "local" constants values changes'
+																		    }
+											                       }
+									   },
+									   
+
+                             confirmRepTxtWindow = {
+                                                    labels = {tags = "Tags: @Line %d: Reviewing %d/%d replacement(s): ",
+                                                              orgnlTxt = "Original: @%s",
+                                                              newTxt = "Replacement:",
+                                                              totalReplcmnts = "Total Replacement(s) to review: %d/%d", 
+                                                              details = {
+                                                                         preLines = "The %d line(s) before the current viewed line",
+                                                                         postLines = "The %d line(s) after the current viewed line"
+                                                                        } 
+                                                             },
+
+                                                    hints = {tags = "Tags of the current subtitle line",
+                                                             preLines = 'Number of lines preceeding the current line to show in the "Details" Window',
+                                                             postLines = 'Number of lines following the current line to show in the "Details" Window'
+                                                            },
+															 
+													actionDropdown = {replace = "Replace",
+ 													                  replaceAll = "Replace all occurrences of this rule",
+																	  ignore = "Ignore",
+																	  ignoreAll = "Ignore all occurrences of this rule"
+																	 }
+                                                   }
+
+			  			    }
+                      }
+				}
+
+
 function appContext(subtitles, selected_lines, active_line)
-
-    local items = {"1- Do not log constants values changes", "2- Log All constants values changes",
-	               '3- Only log "global" constants values changes', '4- Only log "local" constants values changes'}
-
-	local tmp_conf = {name = "log_vars", class = "dropdown", x = 1, y = 0, height = 1, width = 7, value = items[1], items = items}
-
-	local cfg_res
+    -- load "Localization" file
+    local status, uiLocales = pcall(require, "uiLocalization.replaceTextLocales")
+          uiLocales = status and uiLocales or nil
+	  
+    if(uiLocales)then uiLocalization.Languages = uiLocales
+	   uiLocalization.setLocale("fr")
+	end	
 
     repeat
-	 dialg.conf = {}
+	    options_updated = false
+	    
+	    dialg.conf = {}
+        
+	    local dlg_btns = {replaceText = get_localization('btns.replaceText', uiDefaultLang.en.ui),
+  	                      help = get_localization('btns.help', uiDefaultLang.en.ui),
+  	                      options = get_localization('btns.options', uiDefaultLang.en.ui),
+	  	 			      close = get_localization('btns.close', uiDefaultLang.en.ui)
+	  	 			     }
 
-     table.insert(dialg.conf, {class = "label"; label = '"Defined Constants" values changes:'; x = 0; y = 0 ; height = 1; width = 1;})
-     table.insert(dialg.conf, tmp_conf)
+        local cfg_res, config = aegisub.dialog.display(dialg.conf, {dlg_btns.replaceText, dlg_btns.options, dlg_btns.help, dlg_btns.close})
+	    
+        if(tostring(cfg_res) ~= "false")then
 
-     cfg_res, config = aegisub.dialog.display(dialg.conf, {"Replace Text", "Help", "Close"} )
+           if(cfg_res:lower() == dlg_btns.replaceText:lower())then
+	           invalid_commands = {}
+	           invalid_translations = {}
+			   
+ 	           replaceNames(subtitles, selected_lines, active_line)
+           elseif(cfg_res:lower() == dlg_btns.help:lower())then showHelp() 
+           elseif(cfg_res:lower() == dlg_btns.options:lower())then showOptions() end
 
-     if(tostring(cfg_res) ~= "false")then
+        end
 
-      if(string.lower(cfg_res) == "replace text")then
-	   local tmp_val = trim(string.match(trim(config["log_vars"]), "^%d+"))
-
-	   vars_log = {log_type = tmp_val, entries = {}, undefined_vars = {global = {}, locals = {}}}
-	   invalid_commands = {}
-
- 	   replaceNames(subtitles, selected_lines, active_line)
-      elseif(string.lower(cfg_res) == "help")then showHelp() end
-     end
-
-    until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "replace text" or string.lower(cfg_res) == "close")
+    until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.replaceText:lower() or cfg_res:lower() == dlg_btns.close:lower())
 end
 
 
@@ -148,11 +209,16 @@ function replaceNames(subtitles, selected_lines, active_line)
 	    local details = {data = {}, ids = {}}
 		local avail_details, one_detail = {}, {}
 	    local from_detail = false
+		local tr_update_tbl = {}
+		local dropdown_items_tr = {}
+
 
 	   repeat
+	        options_updated = false
 
-	        if(not from_detail)then 
+	        if(not from_detail)then
 			  details = {data = {}, ids = {}}
+			  tr_update_tbl = {}
 
 	          -- filter ignorable_rules.added
               for ignr_rule_key in pairs(ignorable_rules.added) do
@@ -167,6 +233,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 		      cntrl_list = {items = {}, lines = {}}
 		      tbl_multi_ocrncs = {}
 		      tbl_action_dropdown = {}
+			  dropdown_items_tr = {}
 		      non_applicable_rules = {lines = {}}
 
 
@@ -180,41 +247,48 @@ function replaceNames(subtitles, selected_lines, active_line)
 		        for v, rule in ipairs(val.rules) do
 
 		           local str, old_str, tags, tmp_nbRplcdWrds = replaceText(key, idx, {rule}, line.text, false, rplcd_at_lines, needs_conf, false)
+				   local dropdown_name = "action_dropdown_" .. key .. "_" .. v
 
                    if(tmp_nbRplcdWrds > 0)then
 		    	       items = {}
 		    		   one_detail = {}
-		    	       reviewed_repls = reviewed_repls + 1
+					   
+					   reviewed_repls = reviewed_repls + 1
 
 		    		   -- tags
 		    		   -- label
-		    		   tmp_tbl = {class = "label"; label = string.format("Tags: @Line %d:  Reviewing %d/%d replacement(s): ", ((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules),
+					   local params = {((key + 1) - dlg_st_at), (val.nb_reviewed_rules + 1), val.total_rules}
+		    		   tmp_tbl = {class = "label"; label = get_localization({str = 'confirmRepTxtWindow.labels.tags', params = params}, uiDefaultLang.en.ui),
 					              x = 0; y = pos_y, height = 1; width = 1, control_pos = {default = {y = pos_y}, detail = {y = 0}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
+					   table.insert(tr_update_tbl, {control = tmp_tbl, on = "label", tr = { {field = {str = 'confirmRepTxtWindow.labels.tags', params = params} } } })
 
 		    		   -- edit text
 		    		   tmp_tbl = {name = "line_tags_" .. key .. "_" .. v, class = "edit", x = 0, y = (pos_y + 1), height = 1, width = (txt_box_width * 5),
-		    		   			  value = tags; hint = "Tags of the current subtitle line", control_pos = {default = {y = pos_y + 1}, detail = {y = 1}}
+		    		   			  value = tags, hint = get_localization('confirmRepTxtWindow.hints.tags', uiDefaultLang.en.ui), control_pos = {default = {y = pos_y + 1}, detail = {y = 1}}
 		    		   		     }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
 
 		    		   -- labels
 		    		   -- wrgn_word
-		    		   tmp_tbl = {class = "label"; label = "Original: @" ..  display_time(line.start_time),  height = 1; width = 1,
+					   params = {display_time(line.start_time)}
+		    		   tmp_tbl = {class = "label"; label = get_localization({str = 'confirmRepTxtWindow.labels.orgnlTxt', params = params}, uiDefaultLang.en.ui),  height = 1, width = 1,
 					              x = 0, y = (pos_y + 2), control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
+					   table.insert(tr_update_tbl, {control = tmp_tbl, on = "label", tr = { {field = {str = 'confirmRepTxtWindow.labels.orgnlTxt', params = params} } } })
 
 		    		   -- cr_word
-		    		   tmp_tbl = {class = "label"; label = "Replacement:", x = txt_box_width; y = (pos_y + 2), height = 1; width = 1,
+		    		   tmp_tbl = {class = "label"; label = get_localization('confirmRepTxtWindow.labels.newTxt', uiDefaultLang.en.ui), x = txt_box_width; y = (pos_y + 2), height = 1; width = 1,
                                   control_pos = {default = {y = pos_y + 2}, detail = {y = 2}}
 								 }
 		    		   table.insert(tmp_conf, tmp_tbl)
 		    		   table.insert(one_detail, tmp_tbl)
+					   table.insert(tr_update_tbl, {control = tmp_tbl, on = "label", tr = { {field = {str = 'confirmRepTxtWindow.labels.newTxt'} } } })
 
 		    		   -- textboxes
 		    		   -- wrgn_word
@@ -236,8 +310,9 @@ function replaceNames(subtitles, selected_lines, active_line)
 					      local min_val = (key - dlg_st_at >= detail_max_lines) and detail_max_lines or key - dlg_st_at
 
                           tmp_tbl = {name = "pre_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 2); height = 1,  value = 0, min = 0, max = min_val,
-		    		                 hint = 'Number of lines preceeding the current line to show in the "Details" Window'}
+		    		                 hint = get_localization('confirmRepTxtWindow.hints.preLines', uiDefaultLang.en.ui)}
                           table.insert(tmp_conf, tmp_tbl)
+						  table.insert(tr_update_tbl, {control = tmp_tbl, on = "hint", tr = { {field = {str = 'confirmRepTxtWindow.hints.preLines'} } } })
 					   end
 
 					   -- post-line spin edit
@@ -245,27 +320,35 @@ function replaceNames(subtitles, selected_lines, active_line)
 					      local max_val = (key + detail_max_lines <= #subtitles) and detail_max_lines or #subtitles - key
 
 		    		      tmp_tbl = {name = "post_lines_" .. key .. "_" .. v, class = "intedit", x = ((txt_box_width * 5) - 1), y = (pos_y + 3 + txt_box_hight); height = 1,  value = 0, min = 0, max = max_val,
-		    		                 hint = 'Number of lines following the current line to show in the "Details" Window'}
+		    		                 hint = get_localization('confirmRepTxtWindow.hints.postLines', uiDefaultLang.en.ui)}
                           table.insert(tmp_conf, tmp_tbl)
+						  table.insert(tr_update_tbl, {control = tmp_tbl, on = "hint", tr = { {field = {str = 'confirmRepTxtWindow.hints.postLines'} } } })
 					   end
 
 
-		    		   local dropdown_item = "Replace"
+		    		   local dropdown_item = get_localization('confirmRepTxtWindow.actionDropdown.replace', uiDefaultLang.en.ui)
+
+					   dropdown_items_tr[dropdown_name] = {data = {}, dropdown = {}}
+					   table.insert(dropdown_items_tr[dropdown_name].data,  {field = {str = 'confirmRepTxtWindow.actionDropdown.replace'} } )
 
 		    		   if(ignorable_rules.added[rule.wrng_names] ~= nil)then
 
 		    		      if(ignorable_rules.added[rule.wrng_names].total_lines > 1)then
-		    		         ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
-		    		         dropdown_item = string.format('Replace (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
+ 	    		             ignorable_rules.added[rule.wrng_names].nb_reviewed_lines = ignorable_rules.added[rule.wrng_names].nb_reviewed_lines + 1
+
+		    		         dropdown_item = dropdown_item .. string.format(' (%d/%d)', ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines)
+
+							 dropdown_items_tr[dropdown_name].data[1]["suffix"] = {str = " (%d/%d)", params = {ignorable_rules.added[rule.wrng_names].nb_reviewed_lines, ignorable_rules.added[rule.wrng_names].total_lines}}
 		    			  elseif(ignorable_rules.final[rule.wrng_names])then ignorable_rules.final[rule.wrng_names] = nil end
 
 		    		   end
 
                        table.insert(items, dropdown_item)
-		    		   table.insert(items, "Ignore")
+		    		   table.insert(items, get_localization('confirmRepTxtWindow.actionDropdown.ignore', uiDefaultLang.en.ui))
+					   table.insert(dropdown_items_tr[dropdown_name].data, {field = {str = 'confirmRepTxtWindow.actionDropdown.ignore'} })
 
                        -- action dropdown
-		    		   local tmp_action_dropdown = {name = "action_dropdown_" .. key .. "_" .. v; class = "dropdown"; x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = txt_box_width; value = items[1]; items = items}
+		    		   local tmp_action_dropdown = {name = dropdown_name, class = "dropdown"; x = 0; y = (pos_y + 3 + txt_box_hight); height = 1; width = txt_box_width; value = items[1]; items = items}
                        table.insert(tmp_conf, tmp_action_dropdown)
 
 		    		   -- ignore and never ask about this rule dropdown menu, display this option only once in the current confirm window
@@ -274,6 +357,8 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 		    		      table.insert(tbl_multi_ocrncs, {rule_name = rule.wrng_names, dropdown = tmp_action_dropdown})
 		    		   end
+					   
+					   dropdown_items_tr[dropdown_name].dropdown = tmp_action_dropdown
 
                        table.insert(cntrl_list.items, key .. "_" .. v)
 		    		   init_fields(cntrl_list.lines, v, {key, rule.wrng_names})
@@ -307,10 +392,24 @@ function replaceNames(subtitles, selected_lines, active_line)
 
                for _, tmp_data in pairs(tbl_multi_ocrncs)do
                   if(ignorable_rules.added[tmp_data.rule_name] ~= nil and ignorable_rules.added[tmp_data.rule_name].nb_reviewed_lines < ignorable_rules.added[tmp_data.rule_name].total_lines)then			  
-               	     table.insert(tmp_data.dropdown.items, "Replace all occurrences of this rule")
-               	     table.insert(tmp_data.dropdown.items, "Ignore all occurrences of this rule")
+               	     table.insert(tmp_data.dropdown.items, get_localization('confirmRepTxtWindow.actionDropdown.replaceAll', uiDefaultLang.en.ui))
+               	     table.insert(tmp_data.dropdown.items, get_localization('confirmRepTxtWindow.actionDropdown.ignoreAll', uiDefaultLang.en.ui))
+					 
+					 table.insert(dropdown_items_tr[tmp_data.dropdown.name].data, {field = {str = 'confirmRepTxtWindow.actionDropdown.replaceAll'} })
+					 table.insert(dropdown_items_tr[tmp_data.dropdown.name].data, {field = {str = 'confirmRepTxtWindow.actionDropdown.ignoreAll'} })
                   end
+
+				  --aegisub.debug.out('%s\n\n', inspect(dropdown_items_tr)) -- tbr
                end
+			   
+			   
+			   for _, aDrpdwn in pairs(dropdown_items_tr)do
+			      table.insert(tr_update_tbl, {control = aDrpdwn.dropdown, on = "items", tr = aDrpdwn.data})
+			   end
+			   
+              --aegisub.debug.out('%s\n\n', inspect(dropdown_items_tr)) -- tbr
+              --aegisub.debug.out('----------------------------------------------------------\n') -- tbr
+              --aegisub.debug.out('%s\n\n', inspect(tr_update_tbl)) -- tbr
 
 
                -- remove all non-applicable rules
@@ -323,8 +422,10 @@ function replaceNames(subtitles, selected_lines, active_line)
 
                -- total_repls_to_review
                -- label
-               tmp_tbl = { class = "label"; label = string.format("Total Replacement(s) to review: %d/%d", reviewed_repls, total_repls_to_review);  x = 0; y = pos_y; height = 1; width = 1; }
+			   params = {reviewed_repls, total_repls_to_review}
+               tmp_tbl = { class = "label"; label = get_localization({str = 'confirmRepTxtWindow.labels.totalReplcmnts', params = params}, uiDefaultLang.en.ui), x = 0; y = pos_y; height = 1; width = 1; }
                table.insert(tmp_conf, tmp_tbl)
+			   table.insert(tr_update_tbl, {control = tmp_tbl, on = "label", tr = { {field = {str = 'confirmRepTxtWindow.labels.totalReplcmnts', params = params} } } })
 
                -- if no extra replacement is available to be confirmed -> exit
                if(#cntrl_list.items == 0)then break end
@@ -341,14 +442,27 @@ function replaceNames(subtitles, selected_lines, active_line)
 				end
 
             end-- end of: if(not from_detail)then
+            
 
+            local dlg_btns = {replace = get_localization('btns.replace', uiDefaultLang.en.ui),
+  	                          skip = get_localization('btns.skip', uiDefaultLang.en.ui),
+  	                          details = get_localization('btns.details', uiDefaultLang.en.ui),
+  	                          options = get_localization('btns.options', uiDefaultLang.en.ui),
+			                  close = get_localization('btns.close', uiDefaultLang.en.ui)
+			                 }
 
-			cfg_res, config = aegisub.dialog.display(tmp_conf, {"Replace", "Skip", "Details", "Close"})
+			cfg_res, config = aegisub.dialog.display(tmp_conf, {dlg_btns.replace, dlg_btns.skip, dlg_btns.details, dlg_btns.options, dlg_btns.close})
 
 			if(tostring(cfg_res) ~= "false")then
 
-			    if(string.lower(cfg_res) == "replace" or string.lower(cfg_res) == "skip")then
-                    from_detail = false  				
+                if(cfg_res:lower() == dlg_btns.options:lower())then
+				    apply_dialog_values(config, tmp_conf)
+				    from_detail = true
+					
+				    showOptions()
+					update_dlg_tr(tr_update_tbl)
+			    elseif(cfg_res:lower() == dlg_btns.replace:lower() or cfg_res:lower() == dlg_btns.skip:lower())then
+                    from_detail = false
                     local sel_action
 
 			    	for cntrl_item_key, cntrl_item_val in ipairs(cntrl_list.items)do
@@ -363,7 +477,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 			    		  ignorable_rules.ignored[current_rule] = true
 			    	   end
 
-			    	   if(ignorable_rules.ignored[current_rule] == nil and string.lower(cfg_res) == "replace")then
+			    	   if(ignorable_rules.ignored[current_rule] == nil and cfg_res:lower() == dlg_btns.replace:lower())then
 			    	      if(value_exists({'replace', 'replace_all'}, trim(sel_action.act_type:lower())))then
 
 			    		     local apply_on_lines = {[sub_idx] = true}
@@ -396,7 +510,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 			    	      end
 
-			    	   end -- end of: if(string.lower(cfg_res) == "replace")then
+			    	   end -- end of: if(cfg_res:lower() == "replace")then
 
 
                        if(ignorable_rules.ignored[current_rule] == nil)then needs_conf[sub_idx].nb_reviewed_rules = needs_conf[sub_idx].nb_reviewed_rules + 1
@@ -449,10 +563,11 @@ function replaceNames(subtitles, selected_lines, active_line)
 			        ignorable_rules.current = {}
                     ignorable_rules.ignored = {}
 
-			    elseif(string.lower(cfg_res) == "details")then
+			    elseif(cfg_res:lower() == dlg_btns.details:lower())then
 				   apply_dialog_values(config, tmp_conf)
 
 				   from_detail = true
+				   options_updated = false
 
 				   avail_details = {}
 
@@ -471,9 +586,22 @@ function replaceNames(subtitles, selected_lines, active_line)
                    if(#avail_details > 0)then
 				      local detail_id = 1
 				      local details_res
+
+                      local dlg_btns = {}
+
 				      local details_config = {}
 
                       repeat
+
+					      if(options_updated or next(dlg_btns) == nil)then
+						     dlg_btns = {previous = get_localization('btns.previous', uiDefaultLang.en.ui),
+  	                                     next = get_localization('btns.next', uiDefaultLang.en.ui),
+  	                                     options = get_localization('btns.options', uiDefaultLang.en.ui),
+					                     close = get_localization('btns.close', uiDefaultLang.en.ui)
+					                    }
+
+							options_updated = false
+						  end
 
 				          if(avail_details[detail_id] ~= nil)then
 					         local current_detail = avail_details[detail_id]
@@ -481,14 +609,15 @@ function replaceNames(subtitles, selected_lines, active_line)
 					   	     local details_btns = {}
 
                              if(#avail_details > 1)then
-					   	        if(detail_id > 1)then table.insert(details_btns, 'Previous')
+					   	        if(detail_id > 1)then table.insert(details_btns, dlg_btns.previous)
 					   	        else table.insert(details_btns, '...')end
 
-					   	        if(detail_id < #avail_details)then table.insert(details_btns, string.format('Next %d/%d', detail_id, #avail_details))
+					   	        if(detail_id < #avail_details)then table.insert(details_btns, string.format('%s %d/%d', dlg_btns.next, detail_id, #avail_details))
                                 else table.insert(details_btns, '...')end
 							 end
 
-                             table.insert(details_btns, 'Close')
+                             table.insert(details_btns, dlg_btns.options)
+                             table.insert(details_btns, dlg_btns.close)
 
                              local tmp_detail_conf = {} 
 							 local tmp_cntl_tbl
@@ -520,7 +649,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) before the current viewed line", current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format(get_localization('confirmRepTxtWindow.labels.details.preLines', uiDefaultLang.en.ui), current_detail.pre_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -563,7 +692,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 							    end
 
 		    		            -- label
-		    		            tmp_cntl_tbl = {class = "label", label = string.format("The %d line(s) after the current viewed line", current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
+		    		            tmp_cntl_tbl = {class = "label", label = string.format(get_localization('confirmRepTxtWindow.labels.details.postLines', uiDefaultLang.en.ui), current_detail.post_lines), x = 0; y = tmp_pos_y, height = 1; width = 1}
 		    		            table.insert(tmp_detail_conf, tmp_cntl_tbl)
 
 		    		            -- textbox
@@ -577,14 +706,17 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 					   	     apply_dialog_values(details_config, current_detail.data)
 
-							 if(#avail_details > 1 and tostring(details_res) ~= "false")then
-					   	        if(details_res:lower() == 'previous' and detail_id > 1)then detail_id = detail_id - 1
-					   	        elseif(details_res:lower():match('^(next).*') == 'next' and detail_id < #avail_details)then detail_id = detail_id + 1 end
-							 end
+                             if(details_res:lower() == dlg_btns.options:lower())then 
+							      showOptions()
+								  update_dlg_tr(tr_update_tbl)
+							 elseif((tostring(details_res) ~= "false" or trim(details_res:lower()) ~= dlg_btns.close:lower()) and #avail_details > 1)then
+					   	        if(details_res:lower() == dlg_btns.previous:lower() and detail_id > 1)then detail_id = detail_id - 1
+					   	        elseif(details_res:lower():match(string.format('^(%s).*', dlg_btns.next:lower())) == dlg_btns.next:lower() and detail_id < #avail_details)then detail_id = detail_id + 1 end
+                             end
 
                           end
 
-				      until(tostring(details_res) == "false" or trim(details_res:lower()) == "close")
+				      until(tostring(details_res) == "false" or trim(details_res:lower()) == dlg_btns.close:lower())
 
 				   end-- end of: if(#avail_details > 0)then
 
@@ -592,7 +724,7 @@ function replaceNames(subtitles, selected_lines, active_line)
 
 			end-- end of: if(tostring(cfg_res) ~= "false")then
 
-	   until(tostring(cfg_res) == "false" or string.lower(cfg_res) == "close")
+	   until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.close:lower())
 
 	 end -- end of: if(total_repls_to_review > 0)then
 
@@ -665,6 +797,16 @@ function replaceNames(subtitles, selected_lines, active_line)
      for _, log_entry in ipairs(vars_log.entries)do
 	  aegisub.debug.out(log_entry)
 	 end
+	end
+
+
+     -- print translations fields errors
+	if(next(invalid_translations) ~= nil)then
+	   aegisub.debug.out('\n-----------------------[Error/Invalid Translated Field(s) found]-----------------------\n')
+       
+	   for tr_lng, tr_field in pairs(invalid_translations)do
+		  for _, tr_error in pairs(tr_field)do aegisub.debug.out(tr_error .. "\n") end
+	   end
 	end
 
 
@@ -1604,31 +1746,82 @@ function showHelp()
 end
 
 
+function showOptions()
+    local langs = {[uiDefaultLang.en.caption]  = "en" }
+	local langs_items = {uiDefaultLang.en.caption}
+
+    for lang_id, aLangData in pairs(uiLocalization.Languages)do
+	   if(langs[aLangData.caption] == nil)then
+	      langs[aLangData.caption] = lang_id
+		  table.insert(langs_items, aLangData.caption)
+	   end
+	end
+	
+    repeat
+	    local tmp_conf = {}
+	    local pos_y = 0
+	    local tmp_tbl
+
+	    local dlg_btns = {apply = get_localization('btns.apply', uiDefaultLang.en.ui),
+	  	 			      close = get_localization('btns.close', uiDefaultLang.en.ui)
+	  	 			     }
+
+		-- [available Localizations dropdown]
+		-- label
+        tmp_tbl = {class = "label", label = get_localization('options.labels.langDropdown', uiDefaultLang.en.ui), x = 0, y = pos_y, height = 1, width = 1}
+        table.insert(tmp_conf, tmp_tbl)		
+						 
+		-- dropdwon
+        tmp_tbl = {name = "current_lang", class = "dropdown", x = 1, y = pos_y, height = 1, width = 7, value = uiLocalization.Languages[uiLocalization.getLocale()].caption, items = langs_items}
+	    table.insert(tmp_conf, tmp_tbl)
+
+        -- [log constants dropdown]
+		-- label
+        tmp_tbl = {class = "label", label = get_localization('options.definedConstantsDropDown.label', uiDefaultLang.en.ui), x = 0, y = (pos_y + 1), height = 1, width = 1}
+        table.insert(tmp_conf, tmp_tbl)
+
+		-- dropdown		
+        local items = get_localization('options.definedConstantsDropDown.items', uiDefaultLang.en.ui, {error_type = "array"})
+        local tmp_items = {}
+        local dfnd_cnsts_idx = 1
+
+        for k, item in ipairs(items)do
+	       table.insert(tmp_items, string.format('%d- %s', k, item))
+		   
+		   if(tonumber(vars_log.log_type) == k)then dfnd_cnsts_idx = k end 
+	    end
+
+	    tmp_tbl = {name = "log_vars", class = "dropdown", x = 1, y = (pos_y + 1), height = 1, width = 7, value = tmp_items[dfnd_cnsts_idx], items = tmp_items}
+	    table.insert(tmp_conf, tmp_tbl)
+
+	    
+        local cfg_res, config = aegisub.dialog.display(tmp_conf, {dlg_btns.apply, dlg_btns.close})
+		
+		if(tostring(cfg_res) ~= "false")then
+		  if(cfg_res:lower() == dlg_btns.apply:lower())then
+		     uiLocalization.setLocale(langs[config["current_lang"]])
+			 
+			 local tmp_val = trim(string.match(trim(config["log_vars"]), "^%d+"))
+	         vars_log.log_type =  tmp_val
+	   
+			 options_updated = true
+		  end
+		end
+
+	until(tostring(cfg_res) == "false" or cfg_res:lower() == dlg_btns.close:lower())
+end
+
 -- split a string on a delimiter
-function split(s, delim)
+function split(s, sep)
+    if(sep and sep:len() > 0)then
+        local fields = {}
 
-  assert(type(delim) == "string" and string.len (delim) > 0,"bad delimiter")
+        local pattern = string.format("([^%s]+)", sep)
+        string.gsub(s, pattern, function(c) table.insert(fields, c) end)
 
-  local start = 1
-  local t = {}  -- results table
+        return fields
 
-  -- find each instance of a string followed by the delimiter
-
-  while true do
-    local pos = string.find(s, delim, start, true) -- plain find
-
-    if not pos then
-      break
-    end
-
-    table.insert (t, string.sub(s, start, pos - 1))
-    start = pos + string.len(delim)
-  end -- while
-
-  -- insert final one (after last delimiter)
-  table.insert (t, string.sub (s, start))
-
-  return t
+    else return {s} end
 end
 
 
@@ -1992,10 +2185,10 @@ end
 function get_selected_action(str)
 	local arr_act_types = {}
 	local actions = {
-	                 {pattern = '^replace(?:\\s*\\(\\d+\\/\\d+\\))?$', act_type = 'replace'},
-				     {pattern = '^ignore$', act_type = 'ignore'},
-					 {pattern = '^replace\\s+all.*', act_type = 'replace_all'},
-					 {pattern = '^ignore\\s+all.*', act_type = 'ignore_all'},
+	                 {pattern = '^' .. get_localization('confirmRepTxtWindow.actionDropdown.replace', uiDefaultLang.en.ui) .. '(?:\\s*\\(\\d+\\/\\d+\\))?$', act_type = 'replace'},
+				     {pattern = '^' .. get_localization('confirmRepTxtWindow.actionDropdown.ignore', uiDefaultLang.en.ui) .. '$', act_type = 'ignore'},
+					 {pattern = '^' .. get_localization('confirmRepTxtWindow.actionDropdown.replaceAll', uiDefaultLang.en.ui) .. '$', act_type = 'replace_all'},
+					 {pattern = '^' .. get_localization('confirmRepTxtWindow.actionDropdown.ignoreAll', uiDefaultLang.en.ui) .. '$', act_type = 'ignore_all'},
 				    }
 
 	local sel_action = {act_type = nil, matches = nil}
@@ -2028,6 +2221,131 @@ function apply_dialog_values(arr_config, arr_dialog)
 	  end
    end
 
+end
+
+
+function update_dlg_tr(tbl)
+   local unpack = table.unpack or unpack
+--aegisub.debug.out('%s\n', inspect(tbl)) -- tbr
+   for _, item in ipairs(tbl)do
+   --aegisub.debug.out('%s\n\n', inspect(item)) -- tbr
+      local trnsltd_data = {}
+	  
+	  for _, tr_data in ipairs(item.tr)do
+	     local str = nil
+--aegisub.debug.out('-------------------\n%s\n---------------------\n', inspect(tr_data)) -- tbr
+
+        if(fields_lookup(tr_data, {"prefix", "str"}) ~= nil)then
+		   local tmp_args = tr_data.prefix.params or {}
+		   str = string.format(tr_data.prefix.str, unpack(tmp_args))
+		end
+		
+		if(fields_lookup(tr_data, {"field", "str"}) ~= nil)then 
+		   if(str == nil)then str = '' end
+		   local tmp_args = tr_data.field.params or {}
+           str = str .. get_localization({str = tr_data.field.str, params = tmp_args}, uiDefaultLang.en.ui)
+		   --aegisub.debug.out('on = %s\nstr = %s\n', trim(item.on:lower()), str) -- tbr
+		end
+
+        if(fields_lookup(tr_data, {"suffix", "str"}) ~= nil)then
+		   if(str == nil)then str = '' end
+		   local tmp_args = tr_data.suffix.params or {}
+		   str = str .. string.format(tr_data.suffix.str, unpack(tmp_args))
+		end
+
+         if(str ~= nil)then table.insert(trnsltd_data, str)end
+	  end 
+
+	  if(#trnsltd_data > 0)then
+	     if(trim(item.on:lower()) == "items")then
+
+	         -- get the index of the current value in the items
+             local idx =  1
+
+             for item_idx, val in ipairs(item.control.items)do
+			    if(item.control.value:lower() == val:lower())then
+				   idx = item_idx
+				   break
+				end
+			 end
+
+			 if(idx > #trnsltd_data)then idx = 1 end
+
+		     item.control[item.on] = trnsltd_data	 
+			 item.control.value = trnsltd_data[idx]
+	     else item.control[item.on] = trnsltd_data[1] end
+	  end
+
+   end
+end
+
+
+
+function get_localization(field_path, defaultLangData, options)
+  local field = nil
+
+  if(field_path)then
+     if(type(field_path):lower() == 'string')then field = {str = trim(field_path)}
+	 elseif(fields_lookup(field_path, {'str'}) ~= nil)then field = field_path end
+  end
+
+  if(field)then
+      local default_options = {default_lang_only = false, root = 'ui', error_type = 'string'}
+      local options = options and type(options):lower() == 'table' and options or default_options
+      local data_path
+
+      options = uiLocalization.set_defaults(options, default_options)
+         
+	  local result = uiLocalization.translate(field.str, defaultLangData, options)
+      
+	  if(result.error)then -- field not defined even in the default_language_data
+		 
+		 if(fields_lookup(invalid_translations, {tostring(uiLocalization.getLocale()), field.str}) == nil)then
+		    local tmp_error = string.format('%s\n', tostring(result.error))
+		    tmp_error = tmp_error .. string.format('in the tranlated field: "%s"\n', field.str)
+		    tmp_error = tmp_error .. string.format('of Language: "%s".\n', tostring(uiLocalization.getLocale()))
+		    tmp_error = tmp_error .. 'The default language translation field is also "undefined".\n'
+		    
+		    init_fields(invalid_translations, tmp_error, {uiLocalization.getLocale(), field.str})
+		 end
+		 
+		 if(trim(options.error_type:lower()) == 'array')then return {result.error}
+		 else return tostring(result.error) end
+
+	  elseif(type(result):lower() == 'string')then
+	     local unpack = table.unpack or unpack
+		 local tmp_args = field.params or {}
+          
+		 local status
+		 local tmp_res = result
+         status, result = pcall(string.format, result, unpack(tmp_args))
+
+         if(status)then return result
+         else
+
+			if(fields_lookup(invalid_translations, {tostring(uiLocalization.getLocale()), field.str}) == nil)then
+		       local tmp_error = string.format('%s\n', result)
+		       tmp_error = tmp_error .. string.format('in the tranlated field: "%s%s"\n', options.root and tostring(options.root) .. '.' or '', field.str)
+		       tmp_error = tmp_error .. string.format('[%s]\n', tmp_res)
+		       tmp_error = tmp_error .. string.format('of Language: "%s".\n', tostring(uiLocalization.getLocale()))
+		       tmp_error = tmp_error .. 'The default language field translation is used instead.\n'
+			   tmp_error = tmp_error .. string.format('%s\n', inspect(field))-- tbr
+		       init_fields(invalid_translations, tmp_error, {uiLocalization.getLocale(), field.str})
+			end
+
+	        options.default_lang_only = true
+
+	        result = uiLocalization.translate(field.str, defaultLangData, options)
+			
+			status, tmp_res = pcall(string.format, result, unpack(tmp_args))
+
+            if(status)then return tmp_res
+            else return result end
+		 end
+		 
+	  else return result end
+
+  else return 'Undefined_Tranlated_Field!' end
 end
 
 aegisub.register_macro(script_name, script_description, appContext)
