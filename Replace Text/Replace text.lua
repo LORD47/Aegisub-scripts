@@ -1,14 +1,16 @@
 script_name = "Replace text"
 script_description = "Replace text as user defined"
 script_author = "LORD47"
-script_version = "3.6"
+script_version = "3.6.2"
 
 re = require 'aegisub.re'
 lfs = require 'aegisub.lfs'
 util = require 'aegisub.util'
 iniFile = require 'inifile'
+inspect = require 'inspect' -- tbr
+logmyshit = require 'logmyshit' -- tbr
 uiLocalization = require "uiLocalization"
-
+logmyshit.data = '' -- tbr
 if(not dialg)then dialg = {} end
 dialg.conf = {}
 
@@ -86,6 +88,31 @@ uiDefaultLang = {
 				}
 
 
+local help_str = 'This scirpt reads rules from text files to match and replace expressions, there are 2 ways to do so:' ..
+                 '\n1-Via "Regular Expression (regex)" (see "re" module of aegisub for more informations) using the following method:\n  %1 regex_match_expression\n  %2 regex_replace_expression' ..
+                 "\n\n  Example: subtitle line text = they should of...\n  %1 (should|could)\\s+of \n  %2 \\1've\n  after applying the above rule, the replaced text would be:   they should've..." ..
+		          '\n\n2-Via "Simple Match":  match_expression+replace_expression with 2 cases:'	..
+                 '\n  a-match_expression contains no spaces' ..
+                 '\n    Example: subtitle line text = wich is wrong...\n    wich+which\n    after applying the above rule, the replaced text would be:   which is wrong...' ..
+				  '\n\n  b-match_expression contains spaces' ..
+                 "\n    Suppose we have the following rules:\n     Rule1:\n                /aren't/'re not+are not\n                Example1: they aren't here. -> they are not here.\n                Example2: they're not here. -> theyare not here." ..
+				  "\n     Rule2:\n                /should have+should've\n                Example: you should have seen it. -> you should've seen it." ..
+				  '\n\nImportant remarks:    (for both "regex" and "Simple Match" case)'	..
+				  '\n  1-you can add "%ask" after the replace_expression  to "confirm" (and possibly edit) the replacement text.' ..
+				  '\n\n  2-if you add "%hint rule_description" after the replace_expression (and after %ask expression if it exists), the "rule_description"' ..
+				  '\n     will be used as a description text in the replacements log dialog for the rule applied (otherwise the replace_expression is used).' ..
+				  '\n\n  3-Lines that start with # are treated as comments and thus ignored (so is for empty lines).'
+
+				
+helpLocales = {
+                 en = {
+				       {
+					    {class = "label", x = 0, y = 0, height = 1, width = 1, label = help_str}
+					   }
+                      }
+				}				
+
+
 function appContext(subtitles, selected_lines, active_line)
 
     if(configFileExists(config_file_name))then configFileData.sections = iniFile.parse(config_file_name)   
@@ -95,18 +122,20 @@ function appContext(subtitles, selected_lines, active_line)
 	invalid_localization_files = {}
 
 	local default_locales_path = debug.getinfo(1).source -- this current script path
-	local locales_files_list = get_dir_files_list(default_locales_path, 'uiLocalization', 'replace_text_locale_[a-zA-Z]+\\.lua')
-
-	package.path = package.path .. ';' .. get_file_path(default_locales_path) .. '?.lua'
-
+	local locales_files_list = get_dir_files_list(default_locales_path, [[uiLocalization\replace_text\locales]], '^[a-zA-Z]+\\.lua')
+aegisub.debug.out('%s\n\n', inspect(locales_files_list))-- tbr
+    local modules_dir = set_path_delimiter(get_file_path(default_locales_path) .. [[\uiLocalization\replace_text\locales\]])
+	package.path = package.path .. ';' .. modules_dir ..'?.lua'
+--aegisub.debug.out('path = %s\n\n', package.path)-- tbr
 	for _, locales_filename in ipairs(locales_files_list)do
 
-	   local file_full_path = get_file_path(default_locales_path) .. [[\\\uiLocalization////]] .. locales_filename
-       local module_name =  "uiLocalization." .. re.sub(locales_filename, '\\.lua$', '')
+	   local file_full_path = modules_dir .. locales_filename
+       local module_name =  "uiLocalization.replace_text.locales." .. re.sub(locales_filename, '\\.lua$', '')
 
 	   if(package.loaded[module_name])then package.loaded[module_name] = nil end
 
        local status, uiLocales = pcall(require, module_name)
+	   local tmp_shit = uiLocales
              uiLocales = status and uiLocales or nil
 
        if(uiLocales)then
@@ -222,6 +251,9 @@ function appContext(subtitles, selected_lines, active_line)
 	end
 
    save_config_file(config_file_name, configFileData.sections, configFileData.default)
+   aegisub.debug.out('%s\n\n', inspect(vars_tbl))-- tbr
+
+   logmyshit.writedata(aegisub.decode_path("?user/") .. 'aegisub_reptxt_log.txt')
 end
 
 
@@ -828,7 +860,8 @@ function replaceNames(subtitles, selected_lines, active_line)
 	 showStats(rplcd_at_lines)
 
     end -- end of: if(#rules > 0)then
---print_vars(vars_tbl) -- tbr
+logmyshit.data = logmyshit.data .. string.format('\n--------------------- Rules ---------------------\n%s\n', inspect(rules))-- tbr	
+print_vars(vars_tbl) -- tbr
 
     -- print Undefined Local/Global vars
     -- vars_log = {log_type = '', entries = {}, undefined_vars = {global = {'fname' = { 'line' ={vars_keys = expression_update_id} }}, locals = {'fname' = {} }}}
@@ -1023,7 +1056,7 @@ end
 
 
 function get_command_type(str)
-  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check', 'func', 'require'}
+  local arr_cmd_types = {'load_file', 'global_var', 'local_var', 'regex_match', 'regex_replace', 'hint', 'check', 'func', 'require', 'array'}
   local cmds = { {pattern = '^\\%load\\s+(.+)', cmd_type = arr_cmd_types[1]},
                  {pattern = '^\\%require\\s+(.+)', cmd_type = arr_cmd_types[9]},
                  {pattern = '^\\%\\$[_]([a-zA-Z][a-zA-Z\\_0-9]*)\\s*=\\s*(.+)', cmd_type = arr_cmd_types[2]},
@@ -1033,6 +1066,7 @@ function get_command_type(str)
                  {pattern = '^\\%hint\\s+?(.+)', cmd_type = arr_cmd_types[6]},
                  {pattern = '^\\%check\\s+m\\s*=\\s*([^;]+?)(?:(?:;\\s*pp\\s*=\\s*((?:\\[[^]]+?\\]\\s*?\\[[^]]*?\\];?\\s*?)+)$)|;?$)', cmd_type = arr_cmd_types[7]},
                  {pattern = '^\\%func\\s+([a-zA-Z][a-zA-Z\\_0-9]*)(?:\\(([^)]*)\\))?;\\s*(.+)$', cmd_type = arr_cmd_types[8]},
+                 {pattern = '^\\%\\$([^$]+)\\$\\s*=\\s*\\{\\s*((?:\\$[^$]*?\\$[;,]?\\s*)+)\\}$', cmd_type = arr_cmd_types[10]},
 				 {pattern = '^\\%ask$', cmd_type = 'confirm'}
                }
 
@@ -1080,7 +1114,9 @@ function loadNames(filename, names_list, tmp_rules, rules_keys)
 
 		local cmd = get_command_type(trim(t[i].str))
 
-		if(cmd.cmd_type == 'load_file')then
+        if(cmd.cmd_type == 'array')then
+		        aegisub.debug.out('cmd "%s" @line %d\n$1 = <%s>\n$2 = <%s>\nin file: "%s"\n', cmd.cmd_type, t[i].line, cmd.matches[2].str, cmd.matches[3].str, filename)
+		elseif(cmd.cmd_type == 'load_file')then
 		        aegisub.debug.out(' cmd [load_file]: "%s" @line %d in file: "%s"\n', trim(cmd.matches[2].str), t[i].line, filename)
 
 				local loaded_extrnl_vars = {["global"] = {}, ["locals"] = {}}
@@ -1738,7 +1774,8 @@ function applyVars(val, vars, options)
 	log_expression_updates(expr_update_log, options)
 
 	local pattern  = '\\%(_?[a-zA-Z][a-zA-Z_0-9]*)\\%'
-
+logmyshit.data = logmyshit.data .. string.format('\n------- vars_fkng_local = %s\n', inspect(vars.locals))-- tbr
+logmyshit.data = logmyshit.data .. string.format('\nfull_str = %s\n', options.full_str)-- tbr
 	repeat
 	 local matches = re.match(str, pattern)
 
@@ -1757,17 +1794,19 @@ function applyVars(val, vars, options)
 
 	    if(isGlobal)then
  		 str = re.sub(str, matches[1].str, vars.global[key_global])
-		 str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, vars.global[key_global]) or nil
+		 str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, escapeRegExp(vars.global[key_global])) or nil
 	    else
 		      local current_tmp_local_var = fields_lookup(vars.locals, {key_local, options.fname, 'val'})
-		      str = re.sub(str, matches[1].str, current_tmp_local_var)
-			  str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, current_tmp_local_var) or nil
+			  logmyshit.data = logmyshit.data .. string.format('\ncrnt_var = %s\n', current_tmp_local_var)-- tbr
+		      str = re.sub(str, matches[1].str, escapeRegExp(current_tmp_local_var))
+			  str_2b_updated = str_2b_updated and re.sub(str_2b_updated, matches[1].str, escapeRegExp(current_tmp_local_var)) or nil
 		     end
 
         -- insert and log the updated expression
         if(str_2b_updated and str_2b_updated ~= options.full_str)then
 		  options.full_str = str_2b_updated
 		  log_expression_updates(expr_update_log, options)
+		  logmyshit.data = logmyshit.data .. string.format('\nshit_str = %s\n', str_2b_updated)-- tbr
 		end
 
 	   else -- undefined global/local-> log and notify about it then test the rest of the non-matched sub-string
@@ -1795,11 +1834,15 @@ function applyVars(val, vars, options)
 
 
 		   local tmp_pattern = '^(.*?\\%_?[a-zA-Z][a-zA-Z_0-9]*\\%)(.*)$'
-		   local tmp_str_matches = re.match(str, tmp_pattern)
+		   local tmp_str_matches = re.match(str, tmp_pattern)		      
 
+           aegisub.debug.out('\n----------------------------- applied var --------------------\n%s = %s\n', tmp_pattern, tmp_str_matches[2].str)-- tbr
+		   
 		   if(tmp_str_matches ~= nil)then
 		    tmp_str = tmp_str .. tmp_str_matches[2].str
 			str = tmp_str_matches[3].str
+			
+			logmyshit.data = logmyshit.data .. string.format('\n\nnew_str = %s\n', str)-- tbr
 		   end
 
 	   end
@@ -1807,32 +1850,38 @@ function applyVars(val, vars, options)
      end
 
 	until(matches == nil)
-
+logmyshit.data = logmyshit.data .. string.format('\ntmp_str = %s\n\n', tmp_str .. str)-- tbr
  return (tmp_str .. str)
 end
 
 
 
 -- show help
-function showHelp()
+function showHelp(help_files_list, help_lng)
+     local lang = help_lng or 'en'
      local tmp_conf = {}
-	 local help_str = 'This scirpt reads rules from text files to match and replace expressions, there are 2 ways to do so:' ..
-                      '\n1-Via "Regular Expression (regex)" (see "re" module of aegisub for more informations) using the following method:\n  %1 regex_match_expression\n  %2 regex_replace_expression' ..
-                      "\n\n  Example: subtitle line text = they should of...\n  %1 (should|could)\\s+of \n  %2 \\1've\n  after applying the above rule, the replaced text would be:   they should've..." ..
-			          '\n\n2-Via "Simple Match":  match_expression+replace_expression with 2 cases:'	..
-                      '\n  a-match_expression contains no spaces' ..
-                      '\n    Example: subtitle line text = wich is wrong...\n    wich+which\n    after applying the above rule, the replaced text would be:   which is wrong...' ..
-					  '\n\n  b-match_expression contains spaces' ..
-                      "\n    Suppose we have the following rules:\n     Rule1:\n                /aren't/'re not+are not\n                Example1: they aren't here. -> they are not here.\n                Example2: they're not here. -> theyare not here." ..
-					  "\n     Rule2:\n                /should have+should've\n                Example: you should have seen it. -> you should've seen it." ..
-					  '\n\nImportant remarks:    (for both "regex" and "Simple Match" case)'	..
-					  '\n  1-you can add "%ask" after the replace_expression  to "confirm" (and possibly edit) the replacement text.' ..
-					  '\n\n  2-if you add "%hint rule_description" after the replace_expression (and after %ask expression if it exists), the "rule_description"' ..
-					  '\n     will be used as a description text in the replacements log dialog for the rule applied (otherwise the replace_expression is used).' ..
-					  '\n\n  3-Lines that start with # are treated as comments and thus ignored (so is for empty lines).'
+	 local help_page = 1
 
+	local default_locales_path = debug.getinfo(1).source -- this current script path
+	local locales_files_list = get_dir_files_list(default_locales_path, [[uiLocalization\replace_text\help]], '^[a-zA-Z]+\\.lua')
+	
+aegisub.debug.out('%s\n\n', inspect(locales_files_list))-- tbr
+    local modules_dir = set_path_delimiter(get_file_path(default_locales_path) .. [[\uiLocalization\replace_text\help\]])
+	package.path = package.path .. ';' .. modules_dir ..'?.lua'
+--aegisub.debug.out('path = %s\n\n', package.path)-- tbr
+	for _, locales_filename in ipairs(locales_files_list)do
+
+	   local file_full_path = modules_dir .. locales_filename
+       local module_name =  "uiLocalization.replace_text.help." .. re.sub(locales_filename, '\\.lua$', '')
+
+	   if(package.loaded[module_name])then package.loaded[module_name] = nil end
+
+       local status, uiLocales = pcall(require, module_name)
+	   local tmp_shit = uiLocales
+             uiLocales = status and uiLocales or nil
+    end 
      -- GUI
-     tmp_conf = { {class = "label"; x = 0; y = 0; height = 1; width = 1; label = help_str; } }
+     tmp_conf = { {class = "label"; x = 0; y = 0; height = 1; width = 1; label = help_str} }
 
 	aegisub.dialog.display(tmp_conf, {"OK"})
 end
@@ -2508,6 +2557,17 @@ function set_path_delimiter(file_path)
    if(package.config:sub(1, 1) == '\\')then  -- OS is Windows
        return re.sub(file_path, [[([\\/]+)]], [[\]])
    else return re.sub(file_path, [[([\\/]+)]], [[/]]) end
+
+end
+
+
+function escapeRegExp(str)
+  --return re.sub(str, '[\\-\\[\\]\\{\\}\\(\\)\\*\\+\\?\\.\\,\\^\\$\\|\\#\\s]',   '\\\\$&')
+  return re.sub(str,
+  '[-\\/\\\\^$*+?.()|[\\]{}]', 
+  '\\\\$&')  
+  --'\\\\$&')
+
 
 end
 
